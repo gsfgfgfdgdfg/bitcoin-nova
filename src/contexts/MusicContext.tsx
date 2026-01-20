@@ -1,4 +1,5 @@
-import React, { createContext, useContext, useState, useRef, useCallback } from 'react';
+import React, { createContext, useContext, useState, useRef, useCallback, useEffect } from 'react';
+import { supabase } from '@/integrations/supabase/client';
 
 interface Track {
   id: string;
@@ -18,6 +19,8 @@ interface MusicContextType {
   playlist: Track[];
   currentTime: number;
   duration: number;
+  isLoading: boolean;
+  error: string | null;
   play: () => void;
   pause: () => void;
   toggle: () => void;
@@ -33,57 +36,179 @@ interface MusicContextType {
 
 const MusicContext = createContext<MusicContextType | undefined>(undefined);
 
-const initialPlaylist: Track[] = [
-  { id: '1', title: 'Bitcoin Anthem', artist: 'Bitcoin Nasza Siła', duration: '3:45', url: '#', thumbnail: '' },
-  { id: '2', title: 'Stack Sats Daily', artist: 'Satoshi Beats', duration: '4:12', url: '#', thumbnail: '' },
-  { id: '3', title: 'HODL Forever', artist: 'Crypto Rhymes', duration: '3:28', url: '#', thumbnail: '' },
-  { id: '4', title: '21 Million Dreams', artist: 'Bitcoin Nasza Siła', duration: '5:01', url: '#', thumbnail: '' },
-  { id: '5', title: 'Orange Pill Me', artist: 'The Maximalists', duration: '3:55', url: '#', thumbnail: '' },
-  { id: '6', title: 'Lightning Fast', artist: 'Node Runners', duration: '4:33', url: '#', thumbnail: '' },
-  { id: '7', title: 'Satoshi Vision', artist: 'Bitcoin Nasza Siła', duration: '4:18', url: '#', thumbnail: '' },
-  { id: '8', title: 'Not Your Keys', artist: 'Cold Storage Crew', duration: '3:42', url: '#', thumbnail: '' },
-];
+const parseFileName = (fileName: string): { title: string; artist: string } => {
+  const cleanName = fileName
+    .replace(/\.mp3$/i, '')
+    .replace(/\s*\(\d+\)\s*$/, '')
+    .trim();
+  
+  return {
+    title: cleanName,
+    artist: 'Bitcoin Nasza Siła'
+  };
+};
 
 export const MusicProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const [currentTrack, setCurrentTrack] = useState<Track | null>(initialPlaylist[0]);
+  const [playlist, setPlaylist] = useState<Track[]>([]);
+  const [currentTrack, setCurrentTrack] = useState<Track | null>(null);
   const [isPlaying, setIsPlaying] = useState(false);
   const [volume, setVolumeState] = useState(0.7);
   const [isShuffle, setIsShuffle] = useState(false);
   const [isLoop, setIsLoop] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(0);
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const audioRef = useRef<HTMLAudioElement>(null);
+
+  // Fetch tracks from Supabase Storage
+  useEffect(() => {
+    const fetchTracks = async () => {
+      try {
+        setIsLoading(true);
+        setError(null);
+
+        const { data: files, error: listError } = await supabase
+          .storage
+          .from('Muzyczki')
+          .list('', {
+            limit: 100,
+            sortBy: { column: 'name', order: 'asc' }
+          });
+
+        if (listError) throw listError;
+
+        if (!files || files.length === 0) {
+          setPlaylist([]);
+          return;
+        }
+
+        const mp3Files = files.filter(file => file.name.toLowerCase().endsWith('.mp3'));
+        
+        const trackList: Track[] = mp3Files.map((file, index) => {
+          const { title, artist } = parseFileName(file.name);
+          const { data: urlData } = supabase
+            .storage
+            .from('Muzyczki')
+            .getPublicUrl(file.name);
+
+          return {
+            id: `track-${index + 1}`,
+            title,
+            artist,
+            duration: '3:30',
+            url: urlData.publicUrl,
+            thumbnail: ''
+          };
+        });
+
+        // Remove duplicates based on title
+        const uniqueTracks = trackList.reduce((acc, track) => {
+          const exists = acc.find(t => t.title === track.title);
+          if (!exists) acc.push(track);
+          return acc;
+        }, [] as Track[]);
+
+        setPlaylist(uniqueTracks);
+        if (uniqueTracks.length > 0 && !currentTrack) {
+          setCurrentTrack(uniqueTracks[0]);
+        }
+      } catch (err) {
+        console.error('Error fetching tracks:', err);
+        setError(err instanceof Error ? err.message : 'Nie udało się załadować muzyki');
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
+    fetchTracks();
+  }, []);
+
+  // Handle audio element events
+  useEffect(() => {
+    const audio = audioRef.current;
+    if (!audio) return;
+
+    const handleTimeUpdate = () => setCurrentTime(audio.currentTime);
+    const handleDurationChange = () => setDuration(audio.duration || 0);
+    const handleEnded = () => {
+      if (isLoop) {
+        audio.currentTime = 0;
+        audio.play();
+      } else {
+        next();
+      }
+    };
+
+    audio.addEventListener('timeupdate', handleTimeUpdate);
+    audio.addEventListener('durationchange', handleDurationChange);
+    audio.addEventListener('ended', handleEnded);
+
+    return () => {
+      audio.removeEventListener('timeupdate', handleTimeUpdate);
+      audio.removeEventListener('durationchange', handleDurationChange);
+      audio.removeEventListener('ended', handleEnded);
+    };
+  }, [isLoop]);
+
+  // Handle play/pause
+  useEffect(() => {
+    const audio = audioRef.current;
+    if (!audio || !currentTrack) return;
+
+    if (isPlaying) {
+      audio.play().catch(console.error);
+    } else {
+      audio.pause();
+    }
+  }, [isPlaying, currentTrack]);
+
+  // Handle volume changes
+  useEffect(() => {
+    if (audioRef.current) {
+      audioRef.current.volume = volume;
+    }
+  }, [volume]);
+
+  // Handle track changes
+  useEffect(() => {
+    const audio = audioRef.current;
+    if (!audio || !currentTrack) return;
+
+    audio.src = currentTrack.url;
+    audio.load();
+    if (isPlaying) {
+      audio.play().catch(console.error);
+    }
+  }, [currentTrack?.id]);
 
   const play = useCallback(() => setIsPlaying(true), []);
   const pause = useCallback(() => setIsPlaying(false), []);
   const toggle = useCallback(() => setIsPlaying(prev => !prev), []);
 
   const next = useCallback(() => {
-    if (!currentTrack) return;
-    const currentIndex = initialPlaylist.findIndex(t => t.id === currentTrack.id);
+    if (!currentTrack || playlist.length === 0) return;
+    const currentIndex = playlist.findIndex(t => t.id === currentTrack.id);
     let nextIndex: number;
     
     if (isShuffle) {
-      nextIndex = Math.floor(Math.random() * initialPlaylist.length);
+      nextIndex = Math.floor(Math.random() * playlist.length);
     } else {
-      nextIndex = (currentIndex + 1) % initialPlaylist.length;
+      nextIndex = (currentIndex + 1) % playlist.length;
     }
     
-    setCurrentTrack(initialPlaylist[nextIndex]);
-  }, [currentTrack, isShuffle]);
+    setCurrentTrack(playlist[nextIndex]);
+  }, [currentTrack, isShuffle, playlist]);
 
   const previous = useCallback(() => {
-    if (!currentTrack) return;
-    const currentIndex = initialPlaylist.findIndex(t => t.id === currentTrack.id);
-    const prevIndex = currentIndex === 0 ? initialPlaylist.length - 1 : currentIndex - 1;
-    setCurrentTrack(initialPlaylist[prevIndex]);
-  }, [currentTrack]);
+    if (!currentTrack || playlist.length === 0) return;
+    const currentIndex = playlist.findIndex(t => t.id === currentTrack.id);
+    const prevIndex = currentIndex === 0 ? playlist.length - 1 : currentIndex - 1;
+    setCurrentTrack(playlist[prevIndex]);
+  }, [currentTrack, playlist]);
 
   const setVolume = useCallback((v: number) => {
     setVolumeState(v);
-    if (audioRef.current) {
-      audioRef.current.volume = v;
-    }
   }, []);
 
   const toggleShuffle = useCallback(() => setIsShuffle(prev => !prev), []);
@@ -108,9 +233,11 @@ export const MusicProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       volume,
       isShuffle,
       isLoop,
-      playlist: initialPlaylist,
+      playlist,
       currentTime,
       duration,
+      isLoading,
+      error,
       play,
       pause,
       toggle,
@@ -123,6 +250,8 @@ export const MusicProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       seek,
       audioRef,
     }}>
+      {/* Hidden audio element */}
+      <audio ref={audioRef} preload="metadata" />
       {children}
     </MusicContext.Provider>
   );
