@@ -188,7 +188,23 @@
   }
 
   .sound-bar {
-    animation: sound-wave 0.8s ease-in-out infinite;
+    animation: sound-wave 0.5s ease-in-out infinite;
+  }
+
+  /* Subtle pulse for paused play button */
+  @keyframes pulse-subtle {
+    0%, 100% {
+      opacity: 1;
+      box-shadow: 0 0 0 0 hsla(var(--bitcoin-orange), 0.4);
+    }
+    50% {
+      opacity: 0.9;
+      box-shadow: 0 0 0 8px hsla(var(--bitcoin-orange), 0);
+    }
+  }
+
+  .animate-pulse-subtle {
+    animation: pulse-subtle 2s ease-in-out infinite;
   }
 
   /* Fade in animation */
