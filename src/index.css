@@ -2,60 +2,62 @@
 @tailwind components;
 @tailwind utilities;
 
-@import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@400;500;600;700;800;900&family=Rajdhani:wght@300;400;500;600;700&family=Share+Tech+Mono&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Exo+2:wght@300;400;500;600;700;800;900&family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap');
 
 @layer base {
   :root {
-    --background: 0 0% 5%;
-    --foreground: 0 0% 95%;
+    /* Light Professional Theme */
+    --background: 0 0% 100%;
+    --foreground: 220 15% 15%;
 
-    --card: 0 0% 8%;
-    --card-foreground: 0 0% 95%;
+    --card: 220 15% 98%;
+    --card-foreground: 220 15% 15%;
 
-    --popover: 0 0% 8%;
-    --popover-foreground: 0 0% 95%;
+    --popover: 0 0% 100%;
+    --popover-foreground: 220 15% 15%;
 
-    --primary: 32 95% 53%;
-    --primary-foreground: 0 0% 0%;
+    --primary: 32 95% 50%;
+    --primary-foreground: 0 0% 100%;
 
-    --secondary: 0 0% 12%;
-    --secondary-foreground: 0 0% 95%;
+    --secondary: 220 15% 95%;
+    --secondary-foreground: 220 15% 25%;
 
-    --muted: 0 0% 15%;
-    --muted-foreground: 0 0% 60%;
+    --muted: 220 15% 92%;
+    --muted-foreground: 220 10% 45%;
 
-    --accent: 32 95% 53%;
-    --accent-foreground: 0 0% 0%;
+    --accent: 32 95% 50%;
+    --accent-foreground: 0 0% 100%;
 
     --destructive: 0 84% 60%;
     --destructive-foreground: 0 0% 100%;
 
-    --border: 0 0% 20%;
-    --input: 0 0% 15%;
-    --ring: 32 95% 53%;
+    --border: 220 15% 88%;
+    --input: 220 15% 92%;
+    --ring: 32 95% 50%;
 
-    --radius: 0.5rem;
+    --radius: 0.75rem;
 
-    /* Custom Bitcoin theme colors */
-    --bitcoin-orange: 32 95% 53%;
-    --bitcoin-gold: 45 100% 50%;
-    --neon-orange: 32 100% 60%;
-    --cyber-dark: 0 0% 3%;
-    --cyber-gray: 0 0% 10%;
-    --cyber-light: 0 0% 18%;
-    --success: 142 76% 36%;
-    --warning: 45 100% 50%;
+    /* Bitcoin Premium Colors */
+    --bitcoin-orange: 32 95% 50%;
+    --bitcoin-gold: 42 100% 50%;
+    --neon-orange: 28 100% 55%;
+    --cyber-dark: 220 15% 8%;
+    --cyber-gray: 220 10% 20%;
+    --cyber-light: 220 10% 30%;
+    --success: 142 70% 45%;
+    --warning: 42 100% 50%;
 
-    /* Gradients */
-    --gradient-primary: linear-gradient(135deg, hsl(32 95% 53%) 0%, hsl(45 100% 50%) 100%);
-    --gradient-dark: linear-gradient(180deg, hsl(0 0% 8%) 0%, hsl(0 0% 3%) 100%);
-    --gradient-card: linear-gradient(145deg, hsl(0 0% 10%) 0%, hsl(0 0% 6%) 100%);
-    --gradient-glow: radial-gradient(ellipse at center, hsl(32 95% 53% / 0.15) 0%, transparent 70%);
+    /* Premium Gradients */
+    --gradient-primary: linear-gradient(135deg, hsl(32 95% 50%) 0%, hsl(42 100% 55%) 100%);
+    --gradient-light: linear-gradient(180deg, hsl(0 0% 100%) 0%, hsl(220 15% 97%) 100%);
+    --gradient-card: linear-gradient(145deg, hsl(0 0% 100%) 0%, hsl(220 15% 98%) 100%);
+    --gradient-glow: radial-gradient(ellipse at center, hsl(32 95% 50% / 0.08) 0%, transparent 70%);
 
-    /* Shadows */
-    --shadow-neon: 0 0 20px hsl(32 95% 53% / 0.4), 0 0 40px hsl(32 95% 53% / 0.2);
-    --shadow-card: 0 4px 24px hsl(0 0% 0% / 0.5);
-    --shadow-glow: 0 0 30px hsl(32 95% 53% / 0.3);
+    /* Premium Shadows */
+    --shadow-soft: 0 4px 20px hsl(220 15% 15% / 0.08);
+    --shadow-card: 0 2px 16px hsl(220 15% 15% / 0.06);
+    --shadow-glow: 0 0 40px hsl(32 95% 50% / 0.15);
+    --shadow-premium: 0 8px 32px hsl(32 95% 50% / 0.12);
   }
 }
 
@@ -66,67 +68,87 @@
 
   body {
     @apply bg-background text-foreground font-sans antialiased;
-    font-family: 'Rajdhani', sans-serif;
+    font-family: 'Inter', sans-serif;
+    font-weight: 400;
   }
 
   h1, h2, h3, h4, h5, h6 {
-    font-family: 'Orbitron', sans-serif;
+    font-family: 'Exo 2', sans-serif;
+    font-weight: 700;
   }
 
   code, .mono {
-    font-family: 'Share Tech Mono', monospace;
+    font-family: 'JetBrains Mono', monospace;
   }
 }
 
 @layer components {
-  /* Glitch effect */
-  .glitch {
-    position: relative;
-    animation: glitch-skew 4s infinite linear alternate-reverse;
+  /* Premium text gradient */
+  .text-gradient {
+    background: linear-gradient(135deg, hsl(32 95% 50%) 0%, hsl(42 100% 55%) 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
   }
 
-  .glitch::before,
-  .glitch::after {
-    content: attr(data-text);
-    position: absolute;
-    top: 0;
-    left: 0;
-    width: 100%;
-    height: 100%;
-  }
-
-  .glitch::before {
-    animation: glitch-effect 3s infinite linear alternate-reverse;
-    clip-path: polygon(0 0, 100% 0, 100% 35%, 0 35%);
+  /* Elegant glow text */
+  .glow-text {
     color: hsl(var(--bitcoin-orange));
-    text-shadow: -2px 0 hsl(var(--neon-orange));
+    text-shadow: 0 0 20px hsl(var(--bitcoin-orange) / 0.3);
   }
 
-  .glitch::after {
-    animation: glitch-effect 2s infinite linear alternate-reverse;
-    clip-path: polygon(0 65%, 100% 65%, 100% 100%, 0 100%);
-    color: hsl(var(--bitcoin-gold));
-    text-shadow: 2px 0 hsl(var(--warning));
+  /* Premium border with subtle glow */
+  .premium-border {
+    border: 1px solid hsl(var(--bitcoin-orange) / 0.3);
+    box-shadow: 0 0 20px hsl(var(--bitcoin-orange) / 0.08);
   }
 
-  @keyframes glitch-effect {
-    0% { transform: translate(0); }
-    20% { transform: translate(-2px, 2px); }
-    40% { transform: translate(-2px, -2px); }
-    60% { transform: translate(2px, 2px); }
-    80% { transform: translate(2px, -2px); }
-    100% { transform: translate(0); }
+  /* Glass card effect for light theme */
+  .glass-card {
+    background: hsl(0 0% 100% / 0.8);
+    backdrop-filter: blur(20px);
+    border: 1px solid hsl(var(--border));
+    box-shadow: var(--shadow-card);
+    transition: all 0.3s ease;
   }
 
-  @keyframes glitch-skew {
-    0% { transform: skew(0deg); }
-    10% { transform: skew(0.5deg); }
-    20% { transform: skew(-0.5deg); }
-    30% { transform: skew(0deg); }
-    100% { transform: skew(0deg); }
+  .glass-card:hover {
+    border-color: hsl(var(--bitcoin-orange) / 0.3);
+    box-shadow: var(--shadow-premium);
+    transform: translateY(-2px);
   }
 
-  /* Scanline effect */
+  /* Cyber card - updated for light theme */
+  .cyber-card {
+    background: var(--gradient-card);
+    border: 1px solid hsl(var(--border));
+    box-shadow: var(--shadow-card);
+    transition: all 0.3s ease;
+  }
+
+  .cyber-card:hover {
+    border-color: hsl(var(--bitcoin-orange) / 0.4);
+    box-shadow: var(--shadow-premium);
+    transform: translateY(-2px);
+  }
+
+  /* Pulse animation for logo */
+  @keyframes pulse-glow {
+    0%, 100% { 
+      opacity: 0.5;
+      transform: scale(1);
+    }
+    50% { 
+      opacity: 0.8;
+      transform: scale(1.02);
+    }
+  }
+
+  .pulse-glow {
+    animation: pulse-glow 3s ease-in-out infinite;
+  }
+
+  /* Subtle scanlines for light theme */
   .scanlines {
     position: relative;
     overflow: hidden;
@@ -143,63 +165,10 @@
       0deg,
       transparent,
       transparent 2px,
-      hsl(0 0% 0% / 0.03) 2px,
-      hsl(0 0% 0% / 0.03) 4px
+      hsl(220 15% 15% / 0.02) 2px,
+      hsl(220 15% 15% / 0.02) 4px
     );
     pointer-events: none;
-    animation: scanline-move 8s linear infinite;
-  }
-
-  @keyframes scanline-move {
-    0% { transform: translateY(0); }
-    100% { transform: translateY(100px); }
-  }
-
-  /* Neon glow text */
-  .neon-text {
-    color: hsl(var(--bitcoin-orange));
-    text-shadow: 
-      0 0 5px hsl(var(--bitcoin-orange)),
-      0 0 10px hsl(var(--bitcoin-orange)),
-      0 0 20px hsl(var(--bitcoin-orange)),
-      0 0 40px hsl(var(--neon-orange) / 0.5);
-  }
-
-  /* Neon border */
-  .neon-border {
-    border: 1px solid hsl(var(--bitcoin-orange) / 0.5);
-    box-shadow: 
-      0 0 5px hsl(var(--bitcoin-orange) / 0.3),
-      inset 0 0 5px hsl(var(--bitcoin-orange) / 0.1);
-  }
-
-  /* Card hover effect */
-  .cyber-card {
-    background: var(--gradient-card);
-    border: 1px solid hsl(var(--border));
-    transition: all 0.3s ease;
-  }
-
-  .cyber-card:hover {
-    border-color: hsl(var(--bitcoin-orange) / 0.5);
-    box-shadow: var(--shadow-glow);
-    transform: translateY(-2px);
-  }
-
-  /* Pulse animation for music visualizer */
-  @keyframes pulse-glow {
-    0%, 100% { 
-      opacity: 0.6;
-      transform: scale(1);
-    }
-    50% { 
-      opacity: 1;
-      transform: scale(1.05);
-    }
-  }
-
-  .pulse-glow {
-    animation: pulse-glow 2s ease-in-out infinite;
   }
 
   /* Price ticker animation */
@@ -249,23 +218,38 @@
   .stagger-children > *:nth-child(3) { animation-delay: 0.3s; }
   .stagger-children > *:nth-child(4) { animation-delay: 0.4s; }
   .stagger-children > *:nth-child(5) { animation-delay: 0.5s; }
+
+  /* Premium button glow */
+  .btn-glow {
+    position: relative;
+    overflow: hidden;
+  }
+
+  .btn-glow::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(135deg, hsl(0 0% 100% / 0.2) 0%, transparent 50%);
+    pointer-events: none;
+  }
 }
 
-/* Custom scrollbar */
+/* Premium scrollbar for light theme */
 ::-webkit-scrollbar {
   width: 8px;
   height: 8px;
 }
 
 ::-webkit-scrollbar-track {
-  background: hsl(var(--cyber-dark));
+  background: hsl(var(--muted));
+  border-radius: 4px;
 }
 
 ::-webkit-scrollbar-thumb {
-  background: hsl(var(--bitcoin-orange) / 0.5);
+  background: hsl(var(--bitcoin-orange) / 0.4);
   border-radius: 4px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: hsl(var(--bitcoin-orange));
+  background: hsl(var(--bitcoin-orange) / 0.6);
 }

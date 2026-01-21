@@ -10,14 +10,13 @@ const Music = () => {
   return (
     <div className="min-h-screen pb-24">
       {/* Hero */}
-      <section className="relative py-16 overflow-hidden scanlines">
-        <div className="absolute inset-0 bg-gradient-radial from-bitcoin-orange/10 via-transparent to-transparent" />
-        <div className="absolute inset-0 bg-grid-pattern bg-[size:40px_40px] opacity-20" />
+      <section className="relative py-16 overflow-hidden">
+        <div className="absolute inset-0 bg-gradient-radial from-bitcoin-orange/5 via-transparent to-transparent" />
         
         <div className="container mx-auto px-4 relative z-10">
           <div className="text-center">
-            <h1 className="font-display text-4xl md:text-6xl font-black mb-4 glitch neon-text" data-text={t.music.title}>
-              {t.music.title}
+            <h1 className="font-display text-4xl md:text-6xl font-bold mb-4">
+              <span className="text-gradient">{t.music.title}</span>
             </h1>
             <p className="text-muted-foreground text-lg md:text-xl max-w-2xl mx-auto">
               {t.music.subtitle}
@@ -28,10 +27,10 @@ const Music = () => {
 
       {/* Now Playing Hero */}
       <section className="container mx-auto px-4 py-12">
-        <div className="cyber-card rounded-2xl p-8 neon-border">
+        <div className="glass-card rounded-2xl p-8 premium-border">
           <div className="flex flex-col md:flex-row items-center gap-8">
             {/* Album Art */}
-            <div className="relative w-64 h-64 rounded-xl bg-gradient-to-br from-bitcoin-orange/20 to-bitcoin-gold/10 flex items-center justify-center shrink-0 overflow-hidden group">
+            <div className="relative w-64 h-64 rounded-2xl bg-gradient-to-br from-bitcoin-orange/10 to-bitcoin-gold/5 flex items-center justify-center shrink-0 overflow-hidden group border border-bitcoin-orange/20">
               {isPlaying && (
                 <div className="absolute inset-0 flex items-end justify-center gap-1 p-8">
                   {[...Array(12)].map((_, i) => (
@@ -46,8 +45,7 @@ const Music = () => {
                   ))}
                 </div>
               )}
-              <span className="text-8xl font-display font-black text-bitcoin-orange/30 z-10 group-hover:text-bitcoin-orange/50 transition-colors">₿</span>
-              <div className="absolute inset-0 bg-gradient-to-t from-cyber-dark via-transparent to-transparent" />
+              <span className="text-8xl font-display font-bold text-bitcoin-orange/20 z-10 group-hover:text-bitcoin-orange/30 transition-colors">₿</span>
             </div>
 
             {/* Track Info */}
@@ -62,12 +60,12 @@ const Music = () => {
                 <Button
                   onClick={toggle}
                   size="lg"
-                  className="bg-gradient-to-r from-bitcoin-orange to-bitcoin-gold text-background font-bold px-8 hover:shadow-[0_0_30px_hsl(var(--bitcoin-orange)/0.4)] transition-shadow"
+                  className="bg-gradient-to-r from-bitcoin-orange to-bitcoin-gold text-white font-bold px-8 shadow-lg hover:shadow-xl hover:scale-105 transition-all"
                 >
                   {isPlaying ? <Pause className="w-5 h-5 mr-2" /> : <Play className="w-5 h-5 mr-2" />}
                   {isPlaying ? 'Pause' : 'Play'}
                 </Button>
-                <Button variant="outline" size="lg" className="border-bitcoin-orange/50 text-bitcoin-orange hover:bg-bitcoin-orange/10">
+                <Button variant="outline" size="lg" className="border-bitcoin-orange/30 text-bitcoin-orange hover:bg-bitcoin-orange/10">
                   <Heart className="w-5 h-5" />
                 </Button>
               </div>
@@ -90,8 +88,8 @@ const Music = () => {
                 onClick={() => selectTrack(track)}
                 className={`flex items-center gap-4 p-4 rounded-xl cursor-pointer transition-all ${
                   isActive 
-                    ? 'bg-bitcoin-orange/10 border border-bitcoin-orange/30' 
-                    : 'bg-card hover:bg-secondary border border-transparent'
+                    ? 'bg-bitcoin-orange/10 border border-bitcoin-orange/20 shadow-sm' 
+                    : 'bg-card hover:bg-secondary border border-transparent hover:border-border'
                 }`}
               >
                 {/* Track Number / Play Icon */}
@@ -125,7 +123,7 @@ const Music = () => {
                     <Clock className="w-4 h-4" />
                     {track.duration}
                   </span>
-                  <Button variant="ghost" size="sm" className="hover:text-bitcoin-orange">
+                  <Button variant="ghost" size="sm" className="hover:text-bitcoin-orange hover:bg-bitcoin-orange/10">
                     <Download className="w-4 h-4" />
                   </Button>
                 </div>

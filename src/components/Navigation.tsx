@@ -3,6 +3,7 @@ import { Link, useLocation } from 'react-router-dom';
 import { Newspaper, Music, ShoppingBag, User, Menu, X } from 'lucide-react';
 import { useLanguage } from '@/contexts/LanguageContext';
 import { Button } from '@/components/ui/button';
+import BitcoinLogo from '@/components/BitcoinLogo';
 
 const Navigation = () => {
   const { language, setLanguage, t } = useLanguage();
@@ -17,21 +18,16 @@ const Navigation = () => {
   ];
 
   return (
-    <nav className="sticky top-0 z-50 bg-background/95 backdrop-blur-lg border-b border-border">
+    <nav className="sticky top-0 z-50 bg-background/95 backdrop-blur-xl border-b border-border shadow-sm">
       <div className="container mx-auto px-4">
         <div className="flex items-center justify-between h-16">
           {/* Logo */}
           <Link to="/" className="flex items-center gap-3 group">
-            <div className="relative">
-              <div className="w-10 h-10 rounded-full bg-gradient-to-br from-bitcoin-orange to-bitcoin-gold flex items-center justify-center font-display font-black text-background text-lg group-hover:shadow-[0_0_20px_hsl(var(--bitcoin-orange)/0.5)] transition-shadow">
-                ₿
-              </div>
-              <div className="absolute inset-0 rounded-full bg-bitcoin-orange/30 blur-lg opacity-0 group-hover:opacity-100 transition-opacity" />
-            </div>
+            <BitcoinLogo size="sm" />
             <div className="hidden sm:block">
-              <h1 className="font-display font-bold text-lg tracking-wider glitch" data-text="PORTAL BITCOINA">
+              <h1 className="font-display font-bold text-lg tracking-wide">
                 <span className="text-foreground">PORTAL </span>
-                <span className="text-bitcoin-orange">BITCOINA</span>
+                <span className="text-gradient">BITCOINA</span>
               </h1>
             </div>
           </Link>
@@ -46,7 +42,7 @@ const Navigation = () => {
                   to={path}
                   className={`flex items-center gap-2 px-4 py-2 rounded-lg font-medium transition-all ${
                     isActive
-                      ? 'bg-bitcoin-orange/10 text-bitcoin-orange neon-border'
+                      ? 'bg-bitcoin-orange/10 text-bitcoin-orange border border-bitcoin-orange/20'
                       : 'text-muted-foreground hover:text-foreground hover:bg-secondary'
                   }`}
                 >
@@ -63,14 +59,14 @@ const Navigation = () => {
               variant="ghost"
               size="sm"
               onClick={() => setLanguage(language === 'en' ? 'pl' : 'en')}
-              className="font-mono text-sm hover:text-bitcoin-orange"
+              className="font-mono text-sm hover:text-bitcoin-orange hover:bg-bitcoin-orange/10"
             >
               {language === 'en' ? '🇵🇱 PL' : '🇬🇧 EN'}
             </Button>
 
             <button
               onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
-              className="md:hidden p-2 text-muted-foreground hover:text-foreground"
+              className="md:hidden p-2 text-muted-foreground hover:text-foreground rounded-lg hover:bg-secondary"
             >
               {mobileMenuOpen ? <X className="w-6 h-6" /> : <Menu className="w-6 h-6" />}
             </button>
@@ -87,10 +83,10 @@ const Navigation = () => {
                   key={path}
                   to={path}
                   onClick={() => setMobileMenuOpen(false)}
-                  className={`flex items-center gap-3 px-4 py-3 font-medium transition-colors ${
+                  className={`flex items-center gap-3 px-4 py-3 font-medium rounded-lg transition-colors ${
                     isActive
                       ? 'text-bitcoin-orange bg-bitcoin-orange/10'
-                      : 'text-muted-foreground hover:text-foreground'
+                      : 'text-muted-foreground hover:text-foreground hover:bg-secondary'
                   }`}
                 >
                   <Icon className="w-5 h-5" />
