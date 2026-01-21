@@ -21,23 +21,23 @@ const ProductCard = ({ title, description, priceUsd, priceBtc, imageUrl, categor
       style={{ animationDelay: `${index * 0.05}s` }}
     >
       {/* Image */}
-      <div className="relative h-48 overflow-hidden bg-gradient-to-br from-cyber-gray to-cyber-dark">
+      <div className="relative h-48 overflow-hidden bg-gradient-to-br from-secondary to-muted">
         {imageUrl ? (
           <img
             src={imageUrl}
             alt={title}
-            className="w-full h-full object-cover opacity-80 group-hover:opacity-100 group-hover:scale-105 transition-all duration-500"
+            className="w-full h-full object-cover group-hover:scale-105 transition-all duration-500"
           />
         ) : (
           <div className="w-full h-full flex items-center justify-center">
-            <span className="text-6xl opacity-20">₿</span>
+            <span className="text-6xl opacity-10 text-bitcoin-orange">₿</span>
           </div>
         )}
-        <div className="absolute inset-0 bg-gradient-to-t from-cyber-dark via-transparent to-transparent" />
+        <div className="absolute inset-0 bg-gradient-to-t from-card via-transparent to-transparent" />
         
         {/* Category Badge */}
         <div className="absolute top-3 right-3">
-          <span className="px-3 py-1 rounded-full text-xs font-semibold bg-bitcoin-orange/20 text-bitcoin-orange border border-bitcoin-orange/30">
+          <span className="px-3 py-1 rounded-full text-xs font-semibold bg-bitcoin-orange/10 text-bitcoin-orange border border-bitcoin-orange/20">
             {category}
           </span>
         </div>
@@ -66,11 +66,11 @@ const ProductCard = ({ title, description, priceUsd, priceBtc, imageUrl, categor
 
         {/* Buttons */}
         <div className="flex gap-2">
-          <Button className="flex-1 bg-gradient-to-r from-bitcoin-orange to-bitcoin-gold text-background font-semibold hover:shadow-[0_0_20px_hsl(var(--bitcoin-orange)/0.3)] transition-shadow">
+          <Button className="flex-1 bg-gradient-to-r from-bitcoin-orange to-bitcoin-gold text-white font-semibold shadow-md hover:shadow-lg hover:scale-[1.02] transition-all">
             <Bitcoin className="w-4 h-4 mr-2" />
             {t.shop.buyBtc}
           </Button>
-          <Button variant="outline" className="border-border text-muted-foreground hover:text-foreground hover:border-bitcoin-orange/50">
+          <Button variant="outline" className="border-border text-muted-foreground hover:text-foreground hover:border-bitcoin-orange/30 hover:bg-bitcoin-orange/5">
             <CreditCard className="w-4 h-4" />
           </Button>
         </div>

@@ -16,10 +16,10 @@ const NewsCard = ({ title, excerpt, source, date, category, imageUrl, url, index
   const { t } = useLanguage();
 
   const categoryColors: Record<string, string> = {
-    latest: 'bg-bitcoin-orange/20 text-bitcoin-orange border-bitcoin-orange/30',
-    price: 'bg-success/20 text-success border-success/30',
-    adoption: 'bg-warning/20 text-warning border-warning/30',
-    tech: 'bg-primary/20 text-primary border-primary/30',
+    latest: 'bg-bitcoin-orange/10 text-bitcoin-orange border-bitcoin-orange/20',
+    price: 'bg-success/10 text-success border-success/20',
+    adoption: 'bg-warning/10 text-warning border-warning/20',
+    tech: 'bg-primary/10 text-primary border-primary/20',
   };
 
   return (
@@ -28,19 +28,19 @@ const NewsCard = ({ title, excerpt, source, date, category, imageUrl, url, index
       style={{ animationDelay: `${index * 0.05}s` }}
     >
       {/* Image */}
-      <div className="relative h-48 overflow-hidden bg-gradient-to-br from-cyber-gray to-cyber-dark">
+      <div className="relative h-48 overflow-hidden bg-gradient-to-br from-secondary to-muted">
         {imageUrl ? (
           <img
             src={imageUrl}
             alt={title}
-            className="w-full h-full object-cover opacity-80 group-hover:opacity-100 group-hover:scale-105 transition-all duration-500"
+            className="w-full h-full object-cover group-hover:scale-105 transition-all duration-500"
           />
         ) : (
           <div className="w-full h-full flex items-center justify-center">
-            <span className="text-6xl opacity-20">₿</span>
+            <span className="text-6xl opacity-10 text-bitcoin-orange">₿</span>
           </div>
         )}
-        <div className="absolute inset-0 bg-gradient-to-t from-cyber-dark via-transparent to-transparent" />
+        <div className="absolute inset-0 bg-gradient-to-t from-card via-transparent to-transparent" />
         
         {/* Category Badge */}
         <div className="absolute top-3 left-3">

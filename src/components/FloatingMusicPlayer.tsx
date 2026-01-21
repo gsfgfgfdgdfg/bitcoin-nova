@@ -34,19 +34,17 @@ const FloatingMusicPlayer = () => {
   };
 
   return (
-    <div className={`fixed bottom-0 left-0 right-0 z-50 bg-cyber-dark/95 backdrop-blur-lg border-t border-bitcoin-orange/30 transition-all duration-300 ${isExpanded ? 'h-32' : 'h-20'}`}>
-      {/* Sound Wave Visualization */}
+    <div className={`fixed bottom-0 left-0 right-0 z-50 bg-background/95 backdrop-blur-xl border-t border-border shadow-lg transition-all duration-300 ${isExpanded ? 'h-32' : 'h-20'}`}>
+      {/* Subtle gradient line at top */}
       {isPlaying && (
-        <div className="absolute top-0 left-0 right-0 h-1 bg-gradient-to-r from-transparent via-bitcoin-orange to-transparent opacity-50">
-          <div className="absolute inset-0 bg-bitcoin-orange/50 animate-pulse" />
-        </div>
+        <div className="absolute top-0 left-0 right-0 h-0.5 bg-gradient-to-r from-transparent via-bitcoin-orange to-transparent opacity-60" />
       )}
 
       <div className="container mx-auto px-4 h-full">
         <div className="flex items-center justify-between h-20">
           {/* Track Info */}
           <div className="flex items-center gap-4 min-w-0 flex-1">
-            <div className="relative w-12 h-12 rounded-lg bg-gradient-to-br from-bitcoin-orange/20 to-bitcoin-gold/20 flex items-center justify-center shrink-0 overflow-hidden">
+            <div className="relative w-12 h-12 rounded-xl bg-gradient-to-br from-bitcoin-orange/20 to-bitcoin-gold/10 flex items-center justify-center shrink-0 overflow-hidden border border-bitcoin-orange/20">
               {isPlaying && (
                 <div className="absolute inset-0 flex items-end justify-center gap-0.5 p-2">
                   {[...Array(5)].map((_, i) => (
@@ -61,7 +59,7 @@ const FloatingMusicPlayer = () => {
                   ))}
                 </div>
               )}
-              <span className="text-bitcoin-orange font-display text-xl z-10">₿</span>
+              <span className="text-bitcoin-orange font-display text-xl font-bold z-10">₿</span>
             </div>
             
             <div className="min-w-0">
@@ -74,35 +72,35 @@ const FloatingMusicPlayer = () => {
           <div className="flex items-center gap-2 sm:gap-4">
             <button
               onClick={toggleShuffle}
-              className={`hidden sm:block p-2 rounded-full transition-colors ${isShuffle ? 'text-bitcoin-orange' : 'text-muted-foreground hover:text-foreground'}`}
+              className={`hidden sm:flex p-2 rounded-lg transition-colors ${isShuffle ? 'text-bitcoin-orange bg-bitcoin-orange/10' : 'text-muted-foreground hover:text-foreground hover:bg-secondary'}`}
             >
               <Shuffle className="w-4 h-4" />
             </button>
 
             <button
               onClick={previous}
-              className="p-2 text-muted-foreground hover:text-foreground transition-colors"
+              className="p-2 text-muted-foreground hover:text-foreground hover:bg-secondary rounded-lg transition-colors"
             >
               <SkipBack className="w-5 h-5" />
             </button>
 
             <button
               onClick={toggle}
-              className="w-12 h-12 rounded-full bg-gradient-to-br from-bitcoin-orange to-bitcoin-gold flex items-center justify-center text-background hover:shadow-[0_0_20px_hsl(var(--bitcoin-orange)/0.5)] transition-shadow"
+              className="w-12 h-12 rounded-full bg-gradient-to-br from-bitcoin-orange to-bitcoin-gold flex items-center justify-center text-white shadow-lg hover:shadow-xl hover:scale-105 transition-all"
             >
               {isPlaying ? <Pause className="w-5 h-5" /> : <Play className="w-5 h-5 ml-0.5" />}
             </button>
 
             <button
               onClick={next}
-              className="p-2 text-muted-foreground hover:text-foreground transition-colors"
+              className="p-2 text-muted-foreground hover:text-foreground hover:bg-secondary rounded-lg transition-colors"
             >
               <SkipForward className="w-5 h-5" />
             </button>
 
             <button
               onClick={toggleLoop}
-              className={`hidden sm:block p-2 rounded-full transition-colors ${isLoop ? 'text-bitcoin-orange' : 'text-muted-foreground hover:text-foreground'}`}
+              className={`hidden sm:flex p-2 rounded-lg transition-colors ${isLoop ? 'text-bitcoin-orange bg-bitcoin-orange/10' : 'text-muted-foreground hover:text-foreground hover:bg-secondary'}`}
             >
               <Repeat className="w-4 h-4" />
             </button>
@@ -111,7 +109,7 @@ const FloatingMusicPlayer = () => {
           {/* Volume & Expand */}
           <div className="hidden sm:flex items-center gap-4 flex-1 justify-end">
             <div className="flex items-center gap-2 w-32">
-              <button onClick={handleVolumeToggle} className="text-muted-foreground hover:text-foreground">
+              <button onClick={handleVolumeToggle} className="text-muted-foreground hover:text-foreground p-1 rounded-lg hover:bg-secondary">
                 {isMuted || volume === 0 ? <VolumeX className="w-4 h-4" /> : <Volume2 className="w-4 h-4" />}
               </button>
               <Slider
@@ -128,7 +126,7 @@ const FloatingMusicPlayer = () => {
 
             <button
               onClick={() => setIsExpanded(!isExpanded)}
-              className="p-2 text-muted-foreground hover:text-foreground transition-colors"
+              className="p-2 text-muted-foreground hover:text-foreground hover:bg-secondary rounded-lg transition-colors"
             >
               {isExpanded ? <ChevronDown className="w-5 h-5" /> : <ChevronUp className="w-5 h-5" />}
             </button>
@@ -138,10 +136,10 @@ const FloatingMusicPlayer = () => {
         {/* Expanded View */}
         {isExpanded && (
           <div className="h-12 flex items-center">
-            <div className="w-full bg-secondary rounded-full h-1 relative">
+            <div className="w-full bg-secondary rounded-full h-1.5 relative overflow-hidden">
               <div className="absolute left-0 top-0 h-full w-1/3 bg-gradient-to-r from-bitcoin-orange to-bitcoin-gold rounded-full" />
             </div>
-            <span className="ml-4 text-sm text-muted-foreground font-mono">1:23 / {currentTrack.duration}</span>
+            <span className="ml-4 text-sm text-muted-foreground font-mono whitespace-nowrap">1:23 / {currentTrack.duration}</span>
           </div>
         )}
       </div>
