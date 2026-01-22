@@ -46,7 +46,7 @@ interface MusicContextType {
 const MusicContext = createContext<MusicContextType | undefined>(undefined);
 
 const STORAGE_KEY = 'bitcoinMusicState';
-const DEFAULT_VOLUME = 0.15; // 15% głośności na start
+const DEFAULT_VOLUME = 0.01; // 1% głośności na start
 
 const parseFileName = (fileName: string): { title: string; artist: string } => {
   const cleanName = fileName
