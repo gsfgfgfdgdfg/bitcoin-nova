@@ -1,12 +1,14 @@
 import { useState } from 'react';
 import { Link, useLocation } from 'react-router-dom';
-import { Newspaper, Music, ShoppingBag, User, Menu, X } from 'lucide-react';
+import { Newspaper, Music, ShoppingBag, User, Menu, X, LogOut, Sparkles } from 'lucide-react';
 import { useLanguage } from '@/contexts/LanguageContext';
+import { useAuth } from '@/contexts/AuthContext';
 import { Button } from '@/components/ui/button';
 import BitcoinLogo from '@/components/BitcoinLogo';
 
 const Navigation = () => {
   const { language, setLanguage, t } = useLanguage();
+  const { user, signOut } = useAuth();
   const location = useLocation();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
@@ -14,7 +16,11 @@ const Navigation = () => {
     { path: '/', label: t.nav.news, icon: Newspaper },
     { path: '/music', label: t.nav.music, icon: Music },
     { path: '/shop', label: t.nav.shop, icon: ShoppingBag },
-    { path: '/dashboard', label: t.nav.login, icon: User },
+    { 
+      path: user ? '/dashboard' : '/auth', 
+      label: user ? (language === 'pl' ? 'Strefa Pasjonata' : 'Enthusiast Zone') : t.nav.login, 
+      icon: user ? Sparkles : User 
+    },
   ];
 
   return (
@@ -51,6 +57,17 @@ const Navigation = () => {
                 </Link>
               );
             })}
+            
+            {user && (
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => signOut()}
+                className="text-muted-foreground hover:text-destructive ml-2"
+              >
+                <LogOut className="w-4 h-4" />
+              </Button>
+            )}
           </div>
 
           {/* Language Toggle + Mobile Menu */}
@@ -94,6 +111,15 @@ const Navigation = () => {
                 </Link>
               );
             })}
+            {user && (
+              <button
+                onClick={() => { signOut(); setMobileMenuOpen(false); }}
+                className="flex items-center gap-3 px-4 py-3 font-medium rounded-lg text-destructive hover:bg-destructive/10 w-full"
+              >
+                <LogOut className="w-5 h-5" />
+                <span>{language === 'pl' ? 'Wyloguj' : 'Logout'}</span>
+              </button>
+            )}
           </div>
         )}
       </div>
