@@ -14,7 +14,153 @@ export type Database = {
   }
   public: {
     Tables: {
-      [_ in never]: never
+      articles: {
+        Row: {
+          category: string
+          content: string
+          created_at: string | null
+          excerpt: string
+          external_url: string | null
+          id: string
+          image_url: string | null
+          published_at: string | null
+          source: string
+          title: string
+          updated_at: string | null
+        }
+        Insert: {
+          category: string
+          content: string
+          created_at?: string | null
+          excerpt: string
+          external_url?: string | null
+          id?: string
+          image_url?: string | null
+          published_at?: string | null
+          source: string
+          title: string
+          updated_at?: string | null
+        }
+        Update: {
+          category?: string
+          content?: string
+          created_at?: string | null
+          excerpt?: string
+          external_url?: string | null
+          id?: string
+          image_url?: string | null
+          published_at?: string | null
+          source?: string
+          title?: string
+          updated_at?: string | null
+        }
+        Relationships: []
+      }
+      bot_config: {
+        Row: {
+          created_at: string | null
+          exchange: string | null
+          id: string
+          is_running: boolean | null
+          simulated_balance_usd: number | null
+          stop_loss_percent: number | null
+          strategy: string | null
+          trade_amount_percent: number | null
+          updated_at: string | null
+          user_id: string
+        }
+        Insert: {
+          created_at?: string | null
+          exchange?: string | null
+          id?: string
+          is_running?: boolean | null
+          simulated_balance_usd?: number | null
+          stop_loss_percent?: number | null
+          strategy?: string | null
+          trade_amount_percent?: number | null
+          updated_at?: string | null
+          user_id: string
+        }
+        Update: {
+          created_at?: string | null
+          exchange?: string | null
+          id?: string
+          is_running?: boolean | null
+          simulated_balance_usd?: number | null
+          stop_loss_percent?: number | null
+          strategy?: string | null
+          trade_amount_percent?: number | null
+          updated_at?: string | null
+          user_id?: string
+        }
+        Relationships: []
+      }
+      bot_trades: {
+        Row: {
+          amount_btc: number
+          closed_at: string | null
+          created_at: string | null
+          id: string
+          price_usd: number
+          profit_usd: number | null
+          status: string
+          stop_loss_price: number | null
+          take_profit_price: number | null
+          type: string
+          user_id: string
+        }
+        Insert: {
+          amount_btc: number
+          closed_at?: string | null
+          created_at?: string | null
+          id?: string
+          price_usd: number
+          profit_usd?: number | null
+          status: string
+          stop_loss_price?: number | null
+          take_profit_price?: number | null
+          type: string
+          user_id: string
+        }
+        Update: {
+          amount_btc?: number
+          closed_at?: string | null
+          created_at?: string | null
+          id?: string
+          price_usd?: number
+          profit_usd?: number | null
+          status?: string
+          stop_loss_price?: number | null
+          take_profit_price?: number | null
+          type?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
+      profiles: {
+        Row: {
+          avatar_url: string | null
+          created_at: string | null
+          id: string
+          updated_at: string | null
+          username: string | null
+        }
+        Insert: {
+          avatar_url?: string | null
+          created_at?: string | null
+          id: string
+          updated_at?: string | null
+          username?: string | null
+        }
+        Update: {
+          avatar_url?: string | null
+          created_at?: string | null
+          id?: string
+          updated_at?: string | null
+          username?: string | null
+        }
+        Relationships: []
+      }
     }
     Views: {
       [_ in never]: never
