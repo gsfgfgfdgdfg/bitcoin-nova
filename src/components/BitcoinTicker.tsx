@@ -30,7 +30,7 @@ const BitcoinTicker = () => {
   const isPositive = priceData.change24h >= 0;
 
   return (
-    <div className="bg-cyber-dark/80 backdrop-blur-sm border-b border-border">
+    <div className="bg-cyber-dark backdrop-blur-sm border-b border-border">
       <div className="container mx-auto px-4">
         <div className="flex items-center justify-center gap-6 py-2 text-sm">
           <div className="flex items-center gap-2">
