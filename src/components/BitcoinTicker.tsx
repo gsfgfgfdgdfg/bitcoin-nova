@@ -1,17 +1,15 @@
 import { useState, useEffect } from 'react';
 import { TrendingUp, TrendingDown } from 'lucide-react';
-
 interface PriceData {
   price: number;
   change24h: number;
   marketCap: string;
 }
-
 const BitcoinTicker = () => {
   const [priceData, setPriceData] = useState<PriceData>({
     price: 104235.42,
     change24h: 2.34,
-    marketCap: '$2.05T',
+    marketCap: '$2.05T'
   });
 
   // Simulate price updates
@@ -20,23 +18,22 @@ const BitcoinTicker = () => {
       setPriceData(prev => ({
         ...prev,
         price: prev.price + (Math.random() - 0.5) * 100,
-        change24h: prev.change24h + (Math.random() - 0.5) * 0.1,
+        change24h: prev.change24h + (Math.random() - 0.5) * 0.1
       }));
     }, 5000);
-
     return () => clearInterval(interval);
   }, []);
-
   const isPositive = priceData.change24h >= 0;
-
-  return (
-    <div className="bg-cyber-dark backdrop-blur-sm border-b border-border">
-      <div className="container mx-auto px-4">
-        <div className="flex items-center justify-center gap-6 py-2 text-sm">
+  return <div className="bg-cyber-dark backdrop-blur-sm border-b border-border">
+      <div className="container mx-auto px-4 bg-primary-foreground">
+        <div className="flex items-center justify-center gap-6 py-2 text-sm bg-primary-foreground">
           <div className="flex items-center gap-2">
             <span className="text-bitcoin-orange font-display font-bold">₿</span>
             <span className="text-foreground font-mono font-semibold">
-              ${priceData.price.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+              ${priceData.price.toLocaleString('en-US', {
+              minimumFractionDigits: 2,
+              maximumFractionDigits: 2
+            })}
             </span>
           </div>
           
@@ -53,8 +50,6 @@ const BitcoinTicker = () => {
           </div>
         </div>
       </div>
-    </div>
-  );
+    </div>;
 };
-
 export default BitcoinTicker;
