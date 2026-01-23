@@ -208,7 +208,7 @@ export const MusicProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     }
   }, [playlist, currentTrack, autoPlayAttempted, isLoading, volume, isShuffle]);
 
-  // Handle audio element events
+  // Handle audio element events (except ended - handled separately after next is defined)
   useEffect(() => {
     const audio = audioRef.current;
     if (!audio) return;
@@ -229,15 +229,6 @@ export const MusicProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         }
       }
     };
-    
-    const handleEnded = () => {
-      if (isLoop) {
-        audio.currentTime = 0;
-        audio.play();
-      } else {
-        next();
-      }
-    };
 
     const handleWaiting = () => setIsBuffering(true);
     const handlePlaying = () => setIsBuffering(false);
@@ -247,16 +238,10 @@ export const MusicProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       console.error('Audio error:', audioError);
       setError('Błąd odtwarzania. Próbuję następny utwór...');
       setIsBuffering(false);
-      // Try next track after error
-      setTimeout(() => {
-        setError(null);
-        next();
-      }, 2000);
     };
 
     audio.addEventListener('timeupdate', handleTimeUpdate);
     audio.addEventListener('durationchange', handleDurationChange);
-    audio.addEventListener('ended', handleEnded);
     audio.addEventListener('waiting', handleWaiting);
     audio.addEventListener('playing', handlePlaying);
     audio.addEventListener('canplay', handleCanPlay);
@@ -265,13 +250,12 @@ export const MusicProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     return () => {
       audio.removeEventListener('timeupdate', handleTimeUpdate);
       audio.removeEventListener('durationchange', handleDurationChange);
-      audio.removeEventListener('ended', handleEnded);
       audio.removeEventListener('waiting', handleWaiting);
       audio.removeEventListener('playing', handlePlaying);
       audio.removeEventListener('canplay', handleCanPlay);
       audio.removeEventListener('error', handleError);
     };
-  }, [isLoop, currentTrack?.id]);
+  }, [currentTrack?.id]);
 
   // Handle play/pause
   useEffect(() => {
@@ -365,6 +349,33 @@ export const MusicProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     
     fadeToTrack(playlist[nextIndex]);
   }, [currentTrack, isShuffle, playlist, fadeToTrack]);
+
+  // Handle track ended - auto advance to next track (separate effect so 'next' is defined)
+  useEffect(() => {
+    const audio = audioRef.current;
+    if (!audio) return;
+
+    const handleEnded = () => {
+      // Automatycznie przejdź do następnego utworu
+      next();
+    };
+
+    const handleError = () => {
+      // Przy błędzie też przejdź do następnego
+      setTimeout(() => {
+        setError(null);
+        next();
+      }, 1500);
+    };
+
+    audio.addEventListener('ended', handleEnded);
+    audio.addEventListener('error', handleError);
+
+    return () => {
+      audio.removeEventListener('ended', handleEnded);
+      audio.removeEventListener('error', handleError);
+    };
+  }, [next]);
 
   const previous = useCallback(() => {
     if (!currentTrack || playlist.length === 0) return;
