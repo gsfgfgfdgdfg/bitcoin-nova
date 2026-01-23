@@ -84,8 +84,8 @@ export const MusicProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   const [currentTrack, setCurrentTrack] = useState<Track | null>(null);
   const [isPlaying, setIsPlaying] = useState(false);
   const [volume, setVolumeState] = useState(savedState?.volume ?? DEFAULT_VOLUME);
-  const [isShuffle, setIsShuffle] = useState(savedState?.isShuffle ?? false);
-  const [isLoop, setIsLoop] = useState(savedState?.isLoop ?? false);
+  const [isShuffle, setIsShuffle] = useState(true); // Zawsze włączone losowe
+  const [isLoop, setIsLoop] = useState(true); // Zawsze włączone powtarzanie
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(0);
   const [isLoading, setIsLoading] = useState(true);
@@ -175,7 +175,7 @@ export const MusicProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     fetchTracks();
   }, []);
 
-  // Auto-play with low volume after tracks load
+  // Auto-play with low volume after tracks load - ZAWSZE przy każdym odświeżeniu
   useEffect(() => {
     if (playlist.length > 0 && currentTrack && !autoPlayAttempted && !isLoading) {
       setAutoPlayAttempted(true);
@@ -183,7 +183,16 @@ export const MusicProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       const audio = audioRef.current;
       if (audio) {
         audio.volume = volume;
-        audio.src = currentTrack.url;
+        
+        // Przy shuffle wybierz losowy utwór na start
+        let trackToPlay = currentTrack;
+        if (isShuffle && playlist.length > 1) {
+          const randomIndex = Math.floor(Math.random() * playlist.length);
+          trackToPlay = playlist[randomIndex];
+          setCurrentTrack(trackToPlay);
+        }
+        
+        audio.src = trackToPlay.url;
         audio.load();
         
         // Attempt auto-play (may be blocked by browser)
@@ -197,7 +206,7 @@ export const MusicProvider: React.FC<{ children: React.ReactNode }> = ({ childre
           });
       }
     }
-  }, [playlist, currentTrack, autoPlayAttempted, isLoading, volume]);
+  }, [playlist, currentTrack, autoPlayAttempted, isLoading, volume, isShuffle]);
 
   // Handle audio element events
   useEffect(() => {
