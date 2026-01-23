@@ -137,6 +137,45 @@ export type Database = {
         }
         Relationships: []
       }
+      price_history: {
+        Row: {
+          candle_time: string
+          close_price: number
+          created_at: string | null
+          high_price: number
+          id: string
+          interval: string
+          low_price: number
+          open_price: number
+          symbol: string
+          volume: number | null
+        }
+        Insert: {
+          candle_time: string
+          close_price: number
+          created_at?: string | null
+          high_price: number
+          id?: string
+          interval?: string
+          low_price: number
+          open_price: number
+          symbol?: string
+          volume?: number | null
+        }
+        Update: {
+          candle_time?: string
+          close_price?: number
+          created_at?: string | null
+          high_price?: number
+          id?: string
+          interval?: string
+          low_price?: number
+          open_price?: number
+          symbol?: string
+          volume?: number | null
+        }
+        Relationships: []
+      }
       profiles: {
         Row: {
           avatar_url: string | null

@@ -51,27 +51,29 @@ export const calculateBollingerBands = (
 };
 
 // Generate trading signal based on Bollinger Bands strategy
+// STRATEGIA: Kupno przy dolnej wstędze, sprzedaż przy GÓRNEJ wstędze
 export const generateSignal = (
   bands: BollingerBands,
   hasOpenPosition: boolean,
   stopLossPercent: number = 2
 ): TradingSignal => {
-  const { price, upper, middle, lower } = bands;
+  const { price, upper, lower } = bands;
   
   // If we have an open position, check for sell signal
   if (hasOpenPosition) {
-    // Sell when price goes above the middle band (SMA)
-    if (price > middle) {
+    // ZMIANA: Sprzedaż gdy cena osiągnie GÓRNĄ wstęgę Bollingera (nie średnią)
+    const sellThreshold = upper * 0.99; // Within 1% of upper band
+    if (price >= sellThreshold) {
       return {
         type: 'SELL',
-        reason: 'Price crossed above moving average',
+        reason: 'Price reached upper Bollinger Band',
         price,
-        takeProfit: middle,
+        takeProfit: upper,
       };
     }
     return {
       type: 'HOLD',
-      reason: 'Waiting for price to cross above moving average',
+      reason: 'Waiting for price to reach upper Bollinger Band',
       price,
     };
   }
@@ -86,7 +88,7 @@ export const generateSignal = (
       reason: 'Price near lower Bollinger Band',
       price,
       stopLoss,
-      takeProfit: middle,
+      takeProfit: upper, // ZMIANA: Take profit na górnej wstędze
     };
   }
 

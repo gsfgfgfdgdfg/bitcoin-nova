@@ -1,1 +1,7 @@
 project_id = "xnblpyfbdjepmbcyocif"
+
+[functions.sync-bingx-prices]
+verify_jwt = false
+
+[functions.run-bot-simulation]
+verify_jwt = false
