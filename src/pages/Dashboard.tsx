@@ -1,19 +1,23 @@
-import { useEffect, useState } from 'react';
+import { useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useLanguage } from '@/contexts/LanguageContext';
 import { useAuth } from '@/contexts/AuthContext';
 import { useBotConfig, useBotTrades, useBotStats, useCreateBotConfig, useUpdateBotConfig } from '@/hooks/useBotData';
+import { usePriceHistory } from '@/hooks/usePriceHistory';
 import { Button } from '@/components/ui/button';
-import { Bitcoin, TrendingUp, Bot, Play, Square, Clock, Loader2, Sparkles } from 'lucide-react';
+import { Bitcoin, TrendingUp, Bot, Play, Square, Clock, Loader2, Sparkles, RefreshCw } from 'lucide-react';
 import BollingerChart from '@/components/BollingerChart';
 import TradeHistory from '@/components/TradeHistory';
 import StrategyExplainer from '@/components/StrategyExplainer';
 import { formatUSD } from '@/lib/bollinger';
+import { supabase } from '@/integrations/supabase/client';
+import { useQueryClient } from '@tanstack/react-query';
 
 const Dashboard = () => {
   const { t, language } = useLanguage();
   const { user, loading: authLoading } = useAuth();
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
 
   const { data: botConfig, isLoading: configLoading } = useBotConfig();
   const { data: trades, isLoading: tradesLoading } = useBotTrades();
@@ -21,8 +25,8 @@ const Dashboard = () => {
   const createConfig = useCreateBotConfig();
   const updateConfig = useUpdateBotConfig();
 
-  // Simulated price history for chart
-  const [priceHistory, setPriceHistory] = useState<{ price: number; timestamp: number }[]>([]);
+  // Rzeczywista historia cen z BingX
+  const { data: priceHistory = [], isLoading: pricesLoading, refetch: refetchPrices } = usePriceHistory('BTC-USDT', '1h', 30);
 
   useEffect(() => {
     if (!authLoading && !user) {
@@ -30,19 +34,19 @@ const Dashboard = () => {
     }
   }, [user, authLoading, navigate]);
 
+  // Sync prices on mount
   useEffect(() => {
-    // Generate simulated price history
-    const basePrice = 102000;
-    const history = [];
-    for (let i = 30; i >= 0; i--) {
-      const variance = Math.sin(i * 0.3) * 2000 + (Math.random() - 0.5) * 1000;
-      history.push({
-        price: basePrice + variance,
-        timestamp: Date.now() - i * 3600000,
-      });
-    }
-    setPriceHistory(history);
-  }, []);
+    const syncPrices = async () => {
+      try {
+        await supabase.functions.invoke('sync-bingx-prices');
+        queryClient.invalidateQueries({ queryKey: ['price-history'] });
+        queryClient.invalidateQueries({ queryKey: ['current-price'] });
+      } catch (error) {
+        console.error('Error syncing prices:', error);
+      }
+    };
+    syncPrices();
+  }, [queryClient]);
 
   useEffect(() => {
     // Create default config for new users
@@ -158,11 +162,28 @@ const Dashboard = () => {
 
           {/* Bollinger Chart */}
           <div className="lg:col-span-2 cyber-card rounded-xl p-6">
-            <h2 className="font-display text-xl font-bold text-foreground mb-4 flex items-center gap-2">
-              <Bot className="w-5 h-5 text-bitcoin-orange" />
-              {language === 'pl' ? 'Wykres Strategii Bollingera' : 'Bollinger Strategy Chart'}
-            </h2>
-            <BollingerChart priceHistory={priceHistory} />
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="font-display text-xl font-bold text-foreground flex items-center gap-2">
+                <Bot className="w-5 h-5 text-bitcoin-orange" />
+                {language === 'pl' ? 'Wykres Strategii Bollingera (1h)' : 'Bollinger Strategy Chart (1h)'}
+              </h2>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => refetchPrices()}
+                disabled={pricesLoading}
+                className="text-muted-foreground hover:text-foreground"
+              >
+                <RefreshCw className={`w-4 h-4 ${pricesLoading ? 'animate-spin' : ''}`} />
+              </Button>
+            </div>
+            {pricesLoading && priceHistory.length === 0 ? (
+              <div className="h-64 flex items-center justify-center">
+                <Loader2 className="w-8 h-8 animate-spin text-bitcoin-orange" />
+              </div>
+            ) : (
+              <BollingerChart priceHistory={priceHistory} />
+            )}
           </div>
 
           {/* Trade History */}
