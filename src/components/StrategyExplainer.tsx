@@ -1,66 +1,66 @@
-import { TrendingDown, TrendingUp, Target, ShieldAlert } from 'lucide-react';
+import { TrendingDown, TrendingUp, Pause, Calculator } from 'lucide-react';
 import { useLanguage } from '@/contexts/LanguageContext';
 
 const StrategyExplainer = () => {
   const { language } = useLanguage();
 
   const content = language === 'pl' ? {
-    title: 'Strategia Wstęg Bollingera',
-    subtitle: 'Automatyczna strategia handlowa oparta na wskaźnikach technicznych',
+    title: 'Strategia Wolumenowa Bollingera',
+    subtitle: 'Codzienna strategia ze skalowanym wolumenem (6-12 USD)',
     steps: [
       {
         icon: TrendingDown,
-        title: 'Sygnał Kupna',
-        description: 'Bot kupuje 1% portfela gdy cena zbliża się do dolnej wstęgi Bollingera',
+        title: 'Kupno (poniżej MA)',
+        description: 'Codzienne kupno gdy cena jest poniżej średniej. Wolumen: 6-12 USD zależnie od odległości do dolnej wstęgi',
         color: 'success',
       },
       {
-        icon: ShieldAlert,
-        title: 'Stop-Loss',
-        description: 'Automatyczny stop-loss ustawiony tuż pod dolną wstęgą dla ochrony kapitału',
-        color: 'destructive',
-      },
-      {
         icon: TrendingUp,
-        title: 'Sygnał Sprzedaży',
-        description: 'Bot sprzedaje gdy cena wzrośnie powyżej średniej kroczącej (środkowa linia)',
+        title: 'Sprzedaż (powyżej MA)',
+        description: 'Codzienna sprzedaż gdy cena jest powyżej średniej. Wolumen skalowany wg pozycji do górnej wstęgi',
         color: 'bitcoin-orange',
       },
       {
-        icon: Target,
-        title: 'Take Profit',
-        description: 'Cel zysku to średnia krocząca 20-okresowa, gdzie realizowany jest profit',
+        icon: Pause,
+        title: 'Strefa Neutralna',
+        description: 'Brak transakcji gdy cena jest w okolicy ±10% od średniej kroczącej (MA)',
         color: 'warning',
+      },
+      {
+        icon: Calculator,
+        title: 'Wzór na Wolumen',
+        description: 'Wolumen = (1 + odległość_ratio) × 6 USD, maksymalnie 12 USD dziennie',
+        color: 'muted',
       },
     ],
     note: 'SYMULACJA • Tryb demonstracyjny bez rzeczywistych transakcji',
   } : {
-    title: 'Bollinger Bands Strategy',
-    subtitle: 'Automated trading strategy based on technical indicators',
+    title: 'Bollinger Volume Strategy',
+    subtitle: 'Daily strategy with scaled volume (6-12 USD)',
     steps: [
       {
         icon: TrendingDown,
-        title: 'Buy Signal',
-        description: 'Bot buys 1% of portfolio when price approaches the lower Bollinger Band',
+        title: 'Buy (below MA)',
+        description: 'Daily buy when price is below moving average. Volume: 6-12 USD based on distance to lower band',
         color: 'success',
       },
       {
-        icon: ShieldAlert,
-        title: 'Stop-Loss',
-        description: 'Automatic stop-loss set just below the lower band for capital protection',
-        color: 'destructive',
-      },
-      {
         icon: TrendingUp,
-        title: 'Sell Signal',
-        description: 'Bot sells when price rises above the moving average (middle line)',
+        title: 'Sell (above MA)',
+        description: 'Daily sell when price is above moving average. Volume scaled by position to upper band',
         color: 'bitcoin-orange',
       },
       {
-        icon: Target,
-        title: 'Take Profit',
-        description: 'Profit target is the 20-period moving average where gains are realized',
+        icon: Pause,
+        title: 'Neutral Zone',
+        description: 'No transaction when price is within ±10% of the moving average (MA)',
         color: 'warning',
+      },
+      {
+        icon: Calculator,
+        title: 'Volume Formula',
+        description: 'Volume = (1 + distance_ratio) × 6 USD, maximum 12 USD daily',
+        color: 'muted',
       },
     ],
     note: 'SIMULATION • Demo mode without real transactions',
