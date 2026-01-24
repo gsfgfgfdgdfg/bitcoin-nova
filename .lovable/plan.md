@@ -1,304 +1,351 @@
 
-## Plan: Integracja BingX API + Automatyczna Symulacja Bota Bollingera
+
+## Plan: Nowa Strategia Wolumenowa z Bollingerem
 
 ---
 
-### Przegląd
+### Przegląd Nowej Strategii
 
-Zintegruję API giełdy BingX do pobierania rzeczywistych danych cenowych Bitcoina (BTC-USDT), automatycznej aktualizacji co minutę oraz symulacji strategii tradingowej opartej na wstęgach Bollingera z interwałem godzinnym.
+Całkowita zmiana logiki bota tradingowego:
+
+| Element | Stara strategia | Nowa strategia |
+|---------|-----------------|----------------|
+| Częstotliwość | Tylko przy granicy wstęgi | **Codziennie** |
+| Kwota bazowa | 1% portfela | **6 USD** |
+| Max dzienny | Brak limitu | **12 USD** |
+| Sygnał BUY | Cena przy dolnej wstędze | **Cena poniżej MA** |
+| Sygnał SELL | Cena przy górnej wstędze | **Cena powyżej MA** |
+| Strefa HOLD | Brak | **±10% od MA** |
+| Skalowanie | Stałe | **Wg odległości od wstęgi** |
 
 ---
 
-### Architektura Rozwiązania
+### Wzór na Wolumen Transakcji
 
 ```text
-+------------------+         +------------------------+         +------------------+
-|   BingX API      |  <--->  |  Edge Function         |  <--->  |  Supabase DB     |
-|  (dane cenowe)   |         |  sync-bingx-prices     |         |  price_history   |
-+------------------+         +------------------------+         +------------------+
-                                      |
-                                      v
-                             +------------------------+
-                             |  Edge Function         |
-                             |  run-bot-simulation    |
-                             +------------------------+
-                                      |
-                                      v
-                             +------------------+
-                             |  bot_trades      |
-                             |  bot_config      |
-                             +------------------+
+┌─────────────────────────────────────────────────────────────────┐
+│                     UPPER BAND (89772.15)                        │
+│                           ↑                                      │
+│                     SPRZEDAŻ (SELL)                              │
+│                           │                                      │
+│        Wolumen = (1 + odległość_ratio) × 6 USD                   │
+│        gdzie: ratio = (cena - MA) / (upper - MA)                 │
+│                           │                                      │
+│  ┄┄┄┄┄┄┄┄┄┄┄┄┄┄ STREFA HOLD (+10%) ┄┄┄┄┄┄┄┄┄┄┄┄┄┄                │
+│                     MA (89434.49)                                 │
+│  ┄┄┄┄┄┄┄┄┄┄┄┄┄┄ STREFA HOLD (-10%) ┄┄┄┄┄┄┄┄┄┄┄┄┄┄                │
+│                           │                                      │
+│        Wolumen = (1 + odległość_ratio) × 6 USD                   │
+│        gdzie: ratio = (MA - cena) / (MA - lower)                 │
+│                           │                                      │
+│                     KUPNO (BUY)                                   │
+│                           ↓                                      │
+│                     LOWER BAND (89096.84)                         │
+└─────────────────────────────────────────────────────────────────┘
 ```
 
 ---
 
-### Część 1: Tabela na historię cen
-
-Utworzę nową tabelę `price_history` do przechowywania danych cenowych z BingX:
-
-```sql
-CREATE TABLE public.price_history (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  symbol TEXT NOT NULL DEFAULT 'BTC-USDT',
-  open_price DECIMAL(18, 2) NOT NULL,
-  high_price DECIMAL(18, 2) NOT NULL,
-  low_price DECIMAL(18, 2) NOT NULL,
-  close_price DECIMAL(18, 2) NOT NULL,
-  volume DECIMAL(24, 8),
-  interval TEXT NOT NULL DEFAULT '1h',
-  candle_time TIMESTAMPTZ NOT NULL,
-  created_at TIMESTAMPTZ DEFAULT now(),
-  UNIQUE(symbol, interval, candle_time)
-);
-
-CREATE INDEX idx_price_history_time ON public.price_history(symbol, interval, candle_time DESC);
-
-ALTER TABLE public.price_history ENABLE ROW LEVEL SECURITY;
-CREATE POLICY "Anyone can read prices" ON public.price_history FOR SELECT USING (true);
-```
-
----
-
-### Część 2: Edge Function - Pobieranie danych z BingX
-
-Utworzę Edge Function `sync-bingx-prices` która:
-
-1. **Pobiera dane Kline (świece) z BingX API:**
-   - Endpoint: `GET https://open-api.bingx.com/openApi/swap/v2/quote/klines`
-   - Parametry: `symbol=BTC-USDT`, `interval=1h`, `limit=30`
-
-2. **Zapisuje do tabeli `price_history`**
-
-3. **Zwraca aktualną cenę dla BitcoinTicker**
+### Algorytm Kalkulacji Wolumenu
 
 ```typescript
-// supabase/functions/sync-bingx-prices/index.ts
-
-const BINGX_BASE_URL = "https://open-api.bingx.com";
-
-Deno.serve(async (req) => {
-  // CORS
-  if (req.method === "OPTIONS") {
-    return new Response(null, { headers: corsHeaders });
-  }
-
-  // 1. Pobierz klines z BingX (publiczne API - bez autoryzacji)
-  const klineUrl = `${BINGX_BASE_URL}/openApi/swap/v2/quote/klines?symbol=BTC-USDT&interval=1h&limit=30`;
-  const response = await fetch(klineUrl);
-  const data = await response.json();
-
-  // 2. Parsuj i zapisz do bazy
-  const klines = data.data.map(k => ({
-    symbol: "BTC-USDT",
-    interval: "1h",
-    candle_time: new Date(parseInt(k.time)),
-    open_price: parseFloat(k.open),
-    high_price: parseFloat(k.high),
-    low_price: parseFloat(k.low),
-    close_price: parseFloat(k.close),
-    volume: parseFloat(k.volume),
-  }));
-
-  // Upsert do bazy (ignoruj duplikaty)
-  await supabase.from("price_history").upsert(klines, {
-    onConflict: "symbol,interval,candle_time"
-  });
-
-  // 3. Zwróć aktualną cenę
-  return new Response(JSON.stringify({
-    price: klines[klines.length - 1].close_price,
-    change24h: calculateChange24h(klines),
-  }));
-});
-```
-
----
-
-### Część 3: Edge Function - Symulacja Bota
-
-Utworzę Edge Function `run-bot-simulation` która:
-
-1. **Pobiera ostatnie 20 świec z `price_history`**
-2. **Oblicza wstęgi Bollingera**
-3. **Generuje sygnały BUY/SELL zgodnie ze strategią:**
-   - **KUPNO**: Cena przy dolnej wstędze Bollingera
-   - **SPRZEDAŻ**: Cena przy górnej wstędze (zmiana z obecnej logiki gdzie sprzedaż była na średniej)
-   - **Stop-loss**: Tuż pod dolną wstęgą
-4. **Zapisuje symulowane transakcje do `bot_trades`**
-5. **Aktualizuje saldo w `bot_config`**
-
-```typescript
-// supabase/functions/run-bot-simulation/index.ts
-
-// Pobierz historię cen
-const { data: prices } = await supabase
-  .from("price_history")
-  .select("close_price, candle_time")
-  .eq("symbol", "BTC-USDT")
-  .eq("interval", "1h")
-  .order("candle_time", { ascending: false })
-  .limit(20);
-
-// Oblicz Bollinger Bands
-const closePrices = prices.reverse().map(p => p.close_price);
-const bands = calculateBollingerBands(closePrices, 20, 2);
-
-// Sprawdź otwarte pozycje użytkownika
-const { data: openTrades } = await supabase
-  .from("bot_trades")
-  .select("*")
-  .eq("user_id", userId)
-  .eq("status", "open");
-
-// Generuj sygnał (kupno na dolnej, sprzedaż na GÓRNEJ wstędze)
-if (currentPrice <= bands.lower * 1.01 && !hasOpenPosition) {
-  // BUY signal
-  await createBuyTrade(userId, currentPrice, bands.lower * 0.98);
-} else if (currentPrice >= bands.upper * 0.99 && hasOpenPosition) {
-  // SELL signal (zmiana: górna wstęga zamiast średniej)
-  await closeTrade(openTrade.id, currentPrice);
+interface VolumeCalculation {
+  action: 'BUY' | 'SELL' | 'HOLD';
+  volumeUsd: number;
+  distanceRatio: number;
+  reason: string;
 }
-```
 
----
-
-### Część 4: Automatyczne uruchamianie co minutę
-
-Wykorzystam `pg_cron` do automatycznego wywoływania Edge Functions:
-
-```sql
--- Włącz rozszerzenia
-CREATE EXTENSION IF NOT EXISTS pg_cron;
-CREATE EXTENSION IF NOT EXISTS pg_net;
-
--- Cron job: sync cen co minutę
-SELECT cron.schedule(
-  'sync-bingx-prices-every-minute',
-  '* * * * *',
-  $$
-  SELECT net.http_post(
-    url:='https://xnblpyfbdjepmbcyocif.supabase.co/functions/v1/sync-bingx-prices',
-    headers:='{"Content-Type": "application/json", "Authorization": "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."}'::jsonb,
-    body:='{}'::jsonb
-  );
-  $$
-);
-
--- Cron job: symulacja bota co godzinę (zgodnie z interwałem 1h)
-SELECT cron.schedule(
-  'run-bot-simulation-hourly',
-  '0 * * * *',
-  $$
-  SELECT net.http_post(
-    url:='https://xnblpyfbdjepmbcyocif.supabase.co/functions/v1/run-bot-simulation',
-    headers:='{"Content-Type": "application/json", "Authorization": "Bearer ..."}'::jsonb,
-    body:='{}'::jsonb
-  );
-  $$
-);
-```
-
----
-
-### Część 5: Aktualizacja Frontend
-
-#### 5.1 BitcoinTicker - rzeczywiste dane
-
-Zmienię `BitcoinTicker.tsx` aby pobierał dane z Edge Function zamiast symulacji:
-
-```typescript
-useEffect(() => {
-  const fetchPrice = async () => {
-    const { data } = await supabase.functions.invoke('sync-bingx-prices');
-    setPriceData(data);
-  };
+function calculateDailyVolume(
+  price: number,
+  upper: number,
+  middle: number,
+  lower: number,
+  baseAmount: number = 6,
+  maxAmount: number = 12
+): VolumeCalculation {
   
-  fetchPrice();
-  const interval = setInterval(fetchPrice, 60000); // Co minutę
-  return () => clearInterval(interval);
-}, []);
-```
-
-#### 5.2 Dashboard - rzeczywisty wykres Bollingera
-
-Zmienię Dashboard aby pobierał historię cen z bazy:
-
-```typescript
-const { data: priceHistory } = useQuery({
-  queryKey: ['price-history'],
-  queryFn: async () => {
-    const { data } = await supabase
-      .from('price_history')
-      .select('close_price, candle_time')
-      .eq('symbol', 'BTC-USDT')
-      .eq('interval', '1h')
-      .order('candle_time', { ascending: true })
-      .limit(30);
-    return data.map(p => ({ price: p.close_price, timestamp: new Date(p.candle_time).getTime() }));
-  },
-  refetchInterval: 60000,
-});
-```
-
-#### 5.3 Zmiana strategii sprzedaży
-
-Zaktualizuję `src/lib/bollinger.ts` aby sprzedaż następowała przy **górnej wstędze** (nie średniej):
-
-```typescript
-// Zmiana w generateSignal()
-if (hasOpenPosition) {
-  // SELL when price reaches UPPER band (nie middle)
-  if (price >= upper * 0.99) {
+  const upperBandWidth = upper - middle;  // 337.66
+  const lowerBandWidth = middle - lower;  // 337.65
+  
+  // Strefa HOLD: ±10% od średniej
+  const holdZoneUpper = middle + upperBandWidth * 0.10;
+  const holdZoneLower = middle - lowerBandWidth * 0.10;
+  
+  // Jeśli cena w strefie HOLD - nie rób nic
+  if (price >= holdZoneLower && price <= holdZoneUpper) {
     return {
-      type: 'SELL',
-      reason: 'Price reached upper Bollinger Band',
-      price,
-      takeProfit: upper,
+      action: 'HOLD',
+      volumeUsd: 0,
+      distanceRatio: 0,
+      reason: 'Cena w strefie neutralnej (±10% od MA)'
     };
   }
+  
+  // Cena PONIŻEJ MA → KUPNO
+  if (price < middle) {
+    const distanceFromMA = middle - price;
+    const ratio = Math.min(1, distanceFromMA / lowerBandWidth);
+    const volume = Math.min(maxAmount, (1 + ratio) * baseAmount);
+    
+    return {
+      action: 'BUY',
+      volumeUsd: volume,
+      distanceRatio: ratio,
+      reason: `Kupno: cena ${ratio.toFixed(1)}% drogi do dolnej wstęgi`
+    };
+  }
+  
+  // Cena POWYŻEJ MA → SPRZEDAŻ
+  const distanceFromMA = price - middle;
+  const ratio = Math.min(1, distanceFromMA / upperBandWidth);
+  const volume = Math.min(maxAmount, (1 + ratio) * baseAmount);
+  
+  return {
+    action: 'SELL',
+    volumeUsd: volume,
+    distanceRatio: ratio,
+    reason: `Sprzedaż: cena ${ratio.toFixed(1)}% drogi do górnej wstęgi`
+  };
 }
 ```
 
 ---
 
-### Część 6: Struktura plików
+### Weryfikacja na Twoich Przykładach
+
+**Przykład 1: Cena 89291.01 (poniżej MA)**
+```
+upper = 89772.15, MA = 89434.49, lower = 89096.84
+lowerBandWidth = 89434.49 - 89096.84 = 337.65
+distanceFromMA = 89434.49 - 89291.01 = 143.48
+ratio = 143.48 / 337.65 = 0.4249
+volume = (1 + 0.4249) × 6 = 8.55 USD ✓ BUY
+```
+
+**Przykład 2: Cena 89591.01 (powyżej MA)**
+```
+upper = 89772.15, MA = 89434.49, lower = 89096.84
+upperBandWidth = 89772.15 - 89434.49 = 337.66
+distanceFromMA = 89591.01 - 89434.49 = 156.52
+ratio = 156.52 / 337.66 = 0.4635
+volume = (1 + 0.4635) × 6 = 8.78 USD ✓ SELL
+```
+
+---
+
+### Część 1: Aktualizacja Tabeli `bot_config`
+
+Dodanie nowych kolumn dla parametrów strategii:
+
+```sql
+ALTER TABLE public.bot_config
+ADD COLUMN IF NOT EXISTS base_trade_usd DECIMAL(10, 2) DEFAULT 6.00,
+ADD COLUMN IF NOT EXISTS max_daily_usd DECIMAL(10, 2) DEFAULT 12.00,
+ADD COLUMN IF NOT EXISTS hold_zone_percent DECIMAL(5, 2) DEFAULT 10.00,
+ADD COLUMN IF NOT EXISTS last_trade_date DATE;
+```
+
+---
+
+### Część 2: Aktualizacja `src/lib/bollinger.ts`
+
+Dodanie nowych funkcji:
+
+```typescript
+export interface DailyVolumeSignal {
+  action: 'BUY' | 'SELL' | 'HOLD';
+  volumeUsd: number;
+  distanceRatio: number;
+  reason: string;
+  multiplier: number;
+}
+
+export const calculateDailyVolume = (
+  bands: BollingerBands,
+  baseAmount: number = 6,
+  maxAmount: number = 12,
+  holdZonePercent: number = 10
+): DailyVolumeSignal => {
+  const { price, upper, middle, lower } = bands;
+  
+  const upperBandWidth = upper - middle;
+  const lowerBandWidth = middle - lower;
+  
+  // Strefa HOLD: ±holdZonePercent% od średniej
+  const holdZoneThreshold = holdZonePercent / 100;
+  const holdZoneUpper = middle + upperBandWidth * holdZoneThreshold;
+  const holdZoneLower = middle - lowerBandWidth * holdZoneThreshold;
+  
+  // Strefa neutralna
+  if (price >= holdZoneLower && price <= holdZoneUpper) {
+    return {
+      action: 'HOLD',
+      volumeUsd: 0,
+      distanceRatio: 0,
+      multiplier: 1,
+      reason: `Cena w strefie neutralnej (±${holdZonePercent}% od MA)`
+    };
+  }
+  
+  // KUPNO - cena poniżej MA
+  if (price < middle) {
+    const distanceFromMA = middle - price;
+    const ratio = Math.min(1, distanceFromMA / lowerBandWidth);
+    const multiplier = 1 + ratio;
+    const volume = Math.min(maxAmount, multiplier * baseAmount);
+    
+    return {
+      action: 'BUY',
+      volumeUsd: Math.round(volume * 100) / 100,
+      distanceRatio: ratio,
+      multiplier,
+      reason: `Kupno: ${(ratio * 100).toFixed(1)}% drogi do dolnej wstęgi`
+    };
+  }
+  
+  // SPRZEDAŻ - cena powyżej MA
+  const distanceFromMA = price - middle;
+  const ratio = Math.min(1, distanceFromMA / upperBandWidth);
+  const multiplier = 1 + ratio;
+  const volume = Math.min(maxAmount, multiplier * baseAmount);
+  
+  return {
+    action: 'SELL',
+    volumeUsd: Math.round(volume * 100) / 100,
+    distanceRatio: ratio,
+    multiplier,
+    reason: `Sprzedaż: ${(ratio * 100).toFixed(1)}% drogi do górnej wstęgi`
+  };
+};
+```
+
+---
+
+### Część 3: Aktualizacja Edge Function `run-bot-simulation`
+
+Główne zmiany:
+1. Codzienne transakcje (sprawdzenie `last_trade_date`)
+2. Nowy wzór na wolumen
+3. Logika BUY/SELL oparta o pozycję względem MA
+
+```typescript
+// Sprawdź czy dzisiaj już była transakcja
+const today = new Date().toISOString().split('T')[0];
+if (config.last_trade_date === today) {
+  results.push({ userId, action: 'DAILY_LIMIT_REACHED' });
+  continue;
+}
+
+// Oblicz wolumen wg nowej strategii
+const signal = calculateDailyVolume(bands, 
+  config.base_trade_usd || 6,
+  config.max_daily_usd || 12,
+  config.hold_zone_percent || 10
+);
+
+if (signal.action === 'HOLD') {
+  results.push({ userId, action: 'HOLD', details: { reason: signal.reason } });
+  continue;
+}
+
+if (signal.action === 'BUY') {
+  // Kup BTC za obliczony wolumen USD
+  const amountBtc = signal.volumeUsd / currentPrice;
+  await createBuyTrade(userId, amountBtc, currentPrice, signal.volumeUsd);
+}
+
+if (signal.action === 'SELL') {
+  // Sprzedaj BTC o wartości obliczonego wolumenu USD
+  const amountBtc = signal.volumeUsd / currentPrice;
+  await createSellTrade(userId, amountBtc, currentPrice, signal.volumeUsd);
+}
+
+// Zaktualizuj datę ostatniej transakcji
+await supabase
+  .from('bot_config')
+  .update({ last_trade_date: today })
+  .eq('id', config.id);
+```
+
+---
+
+### Część 4: Aktualizacja Frontend
+
+#### 4.1 StrategyExplainer.tsx - Nowy opis strategii
+
+```typescript
+const steps = [
+  {
+    icon: TrendingDown,
+    title: 'Kupno (poniżej MA)',
+    description: 'Codzienne kupno gdy cena jest poniżej średniej. Wolumen: 6-12 USD zależnie od odległości',
+  },
+  {
+    icon: TrendingUp,
+    title: 'Sprzedaż (powyżej MA)',
+    description: 'Codzienna sprzedaż gdy cena jest powyżej średniej. Wolumen skalowany wg pozycji',
+  },
+  {
+    icon: Pause,
+    title: 'Strefa Neutralna',
+    description: 'Brak transakcji gdy cena jest w okolicy ±10% od MA',
+  },
+  {
+    icon: Calculator,
+    title: 'Wzór na Wolumen',
+    description: 'Wolumen = (1 + odległość_ratio) × 6 USD, max 12 USD/dzień',
+  },
+];
+```
+
+#### 4.2 Dashboard.tsx - Wyświetlanie aktualnego sygnału
+
+Dodanie karty pokazującej:
+- Aktualny sygnał (BUY/SELL/HOLD)
+- Obliczony wolumen
+- Mnożnik (1.0x - 2.0x)
+- Odległość od wstęgi w %
+
+---
+
+### Część 5: Struktura Plików
 
 | Plik | Akcja | Opis |
 |------|-------|------|
-| `supabase/functions/sync-bingx-prices/index.ts` | NOWY | Pobieranie danych z BingX |
-| `supabase/functions/run-bot-simulation/index.ts` | NOWY | Logika symulacji bota |
-| `supabase/config.toml` | EDYCJA | Dodanie konfiguracji funkcji |
-| `src/components/BitcoinTicker.tsx` | EDYCJA | Rzeczywiste dane z API |
-| `src/pages/Dashboard.tsx` | EDYCJA | Rzeczywista historia cen |
-| `src/lib/bollinger.ts` | EDYCJA | Sprzedaż na górnej wstędze |
-| `src/hooks/usePriceHistory.ts` | NOWY | Hook do pobierania historii cen |
-| Migracja SQL | NOWY | Tabela `price_history` + cron jobs |
+| `supabase/migrations/xxx_add_volume_columns.sql` | NOWY | Nowe kolumny w bot_config |
+| `src/lib/bollinger.ts` | EDYCJA | Nowa funkcja `calculateDailyVolume` |
+| `supabase/functions/run-bot-simulation/index.ts` | EDYCJA | Nowa logika wolumenowa |
+| `src/components/StrategyExplainer.tsx` | EDYCJA | Nowy opis strategii |
+| `src/pages/Dashboard.tsx` | EDYCJA | Karta aktualnego sygnału |
+| `src/hooks/useBotData.ts` | EDYCJA | Nowe pola w interfejsach |
 
 ---
 
-### Podsumowanie zmian strategii
+### Podsumowanie Logiki
 
-| Element | Było | Będzie |
-|---------|------|--------|
-| Źródło danych | Symulacja losowa | BingX API (rzeczywiste) |
-| Aktualizacja cen | Co 5 sekund (fake) | Co 1 minutę (rzeczywiste) |
-| Interwał strategii | - | 1 godzina |
-| Sygnał KUPNA | Dolna wstęga | Dolna wstęga (bez zmian) |
-| Sygnał SPRZEDAŻY | Średnia (middle) | **Górna wstęga (upper)** |
-| Stop-loss | Pod dolną wstęgą | Pod dolną wstęgą (bez zmian) |
+```text
+CODZIENNIE O USTALONEJ GODZINIE:
 
----
+1. Sprawdź czy dziś już była transakcja → jeśli tak, SKIP
 
-### Sekcja Techniczna
+2. Pobierz Bollinger Bands (20, 2) z 1h świec
 
-**BingX API Endpoints:**
-- Klines: `GET /openApi/swap/v2/quote/klines?symbol=BTC-USDT&interval=1h&limit=30`
-- Ticker: `GET /openApi/swap/v2/quote/ticker?symbol=BTC-USDT`
-- Server Time: `GET /openApi/swap/v2/server/time`
+3. Oblicz strefę HOLD: MA ± 10% szerokości wstęgi
 
-**Uwagi:**
-- BingX zwraca timestampy w milisekundach
-- Liczby są zwracane jako stringi (trzeba parsować)
-- Publiczne endpointy nie wymagają autoryzacji
-- Rate limit: automatyczne ograniczenie po przekroczeniu
+4. JEŚLI cena w strefie HOLD:
+   → Nic nie rób
+
+5. JEŚLI cena < MA (kupno):
+   → ratio = (MA - cena) / (MA - lower)
+   → wolumen = min(12, (1 + ratio) × 6) USD
+   → KUP BTC za wolumen USD
+
+6. JEŚLI cena > MA (sprzedaż):
+   → ratio = (cena - MA) / (upper - MA)
+   → wolumen = min(12, (1 + ratio) × 6) USD
+   → SPRZEDAJ BTC o wartości wolumen USD
+
+7. Zapisz transakcję i zaktualizuj last_trade_date
+```
 
