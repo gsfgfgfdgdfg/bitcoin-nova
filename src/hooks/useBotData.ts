@@ -11,6 +11,10 @@ export interface BotConfig {
   stop_loss_percent: number;
   exchange: string;
   simulated_balance_usd: number;
+  base_trade_usd: number;
+  max_daily_usd: number;
+  hold_zone_percent: number;
+  last_trade_date: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -21,6 +25,7 @@ export interface BotTrade {
   type: 'BUY' | 'SELL';
   amount_btc: number;
   price_usd: number;
+  volume_usd: number | null;
   stop_loss_price: number | null;
   take_profit_price: number | null;
   status: 'open' | 'closed' | 'stopped';

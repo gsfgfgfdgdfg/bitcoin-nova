@@ -58,10 +58,14 @@ export type Database = {
       }
       bot_config: {
         Row: {
+          base_trade_usd: number | null
           created_at: string | null
           exchange: string | null
+          hold_zone_percent: number | null
           id: string
           is_running: boolean | null
+          last_trade_date: string | null
+          max_daily_usd: number | null
           simulated_balance_usd: number | null
           stop_loss_percent: number | null
           strategy: string | null
@@ -70,10 +74,14 @@ export type Database = {
           user_id: string
         }
         Insert: {
+          base_trade_usd?: number | null
           created_at?: string | null
           exchange?: string | null
+          hold_zone_percent?: number | null
           id?: string
           is_running?: boolean | null
+          last_trade_date?: string | null
+          max_daily_usd?: number | null
           simulated_balance_usd?: number | null
           stop_loss_percent?: number | null
           strategy?: string | null
@@ -82,10 +90,14 @@ export type Database = {
           user_id: string
         }
         Update: {
+          base_trade_usd?: number | null
           created_at?: string | null
           exchange?: string | null
+          hold_zone_percent?: number | null
           id?: string
           is_running?: boolean | null
+          last_trade_date?: string | null
+          max_daily_usd?: number | null
           simulated_balance_usd?: number | null
           stop_loss_percent?: number | null
           strategy?: string | null
@@ -108,6 +120,7 @@ export type Database = {
           take_profit_price: number | null
           type: string
           user_id: string
+          volume_usd: number | null
         }
         Insert: {
           amount_btc: number
@@ -121,6 +134,7 @@ export type Database = {
           take_profit_price?: number | null
           type: string
           user_id: string
+          volume_usd?: number | null
         }
         Update: {
           amount_btc?: number
@@ -134,6 +148,7 @@ export type Database = {
           take_profit_price?: number | null
           type?: string
           user_id?: string
+          volume_usd?: number | null
         }
         Relationships: []
       }

@@ -110,7 +110,7 @@ export const formatUSD = (amount: number): string => {
 };
 
 export const formatBTC = (amount: number): string => {
-  return `${amount.toFixed(8)} BTC`;
+  return `${amount.toFixed(6)} BTC`;
 };
 
 // Calculate position size based on available balance and trade percentage
@@ -121,4 +121,82 @@ export const calculatePositionSize = (
 ): number => {
   const usdAmount = balanceUSD * (tradePercent / 100);
   return usdAmount / priceUSD;
+};
+
+// New volume-based strategy types and functions
+export interface DailyVolumeSignal {
+  action: 'BUY' | 'SELL' | 'HOLD';
+  volumeUsd: number;
+  distanceRatio: number;
+  reason: string;
+  multiplier: number;
+}
+
+export const calculateDailyVolume = (
+  bands: BollingerBands,
+  baseAmount: number = 6,
+  maxAmount: number = 12,
+  holdZonePercent: number = 10
+): DailyVolumeSignal => {
+  const { price, upper, middle, lower } = bands;
+  
+  const upperBandWidth = upper - middle;
+  const lowerBandWidth = middle - lower;
+  
+  // Guard against zero division
+  if (upperBandWidth <= 0 || lowerBandWidth <= 0) {
+    return {
+      action: 'HOLD',
+      volumeUsd: 0,
+      distanceRatio: 0,
+      multiplier: 1,
+      reason: 'Invalid band width'
+    };
+  }
+  
+  // HOLD zone: ±holdZonePercent% from MA
+  const holdZoneThreshold = holdZonePercent / 100;
+  const holdZoneUpper = middle + upperBandWidth * holdZoneThreshold;
+  const holdZoneLower = middle - lowerBandWidth * holdZoneThreshold;
+  
+  // Neutral zone - no action
+  if (price >= holdZoneLower && price <= holdZoneUpper) {
+    return {
+      action: 'HOLD',
+      volumeUsd: 0,
+      distanceRatio: 0,
+      multiplier: 1,
+      reason: `Cena w strefie neutralnej (±${holdZonePercent}% od MA)`
+    };
+  }
+  
+  // BUY - price below MA
+  if (price < middle) {
+    const distanceFromMA = middle - price;
+    const ratio = Math.min(1, distanceFromMA / lowerBandWidth);
+    const multiplier = 1 + ratio;
+    const volume = Math.min(maxAmount, multiplier * baseAmount);
+    
+    return {
+      action: 'BUY',
+      volumeUsd: Math.round(volume * 100) / 100,
+      distanceRatio: ratio,
+      multiplier: Math.round(multiplier * 100) / 100,
+      reason: `Kupno: ${(ratio * 100).toFixed(1)}% drogi do dolnej wstęgi`
+    };
+  }
+  
+  // SELL - price above MA
+  const distanceFromMA = price - middle;
+  const ratio = Math.min(1, distanceFromMA / upperBandWidth);
+  const multiplier = 1 + ratio;
+  const volume = Math.min(maxAmount, multiplier * baseAmount);
+  
+  return {
+    action: 'SELL',
+    volumeUsd: Math.round(volume * 100) / 100,
+    distanceRatio: ratio,
+    multiplier: Math.round(multiplier * 100) / 100,
+    reason: `Sprzedaż: ${(ratio * 100).toFixed(1)}% drogi do górnej wstęgi`
+  };
 };
