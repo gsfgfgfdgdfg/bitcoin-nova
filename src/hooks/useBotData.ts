@@ -15,6 +15,7 @@ export interface BotConfig {
   max_daily_usd: number;
   hold_zone_percent: number;
   last_trade_date: string | null;
+  last_trade_hour: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -55,6 +56,8 @@ export const useBotConfig = () => {
       return data as BotConfig | null;
     },
     enabled: !!user,
+    refetchInterval: 60000, // Auto-refresh every minute
+    staleTime: 30000,
   });
 };
 
@@ -136,6 +139,8 @@ export const useBotTrades = () => {
       return data as BotTrade[];
     },
     enabled: !!user,
+    refetchInterval: 60000, // Auto-refresh every minute
+    staleTime: 30000,
   });
 };
 

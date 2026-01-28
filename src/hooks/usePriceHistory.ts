@@ -20,7 +20,7 @@ interface PriceHistoryRow {
   candle_time: string;
 }
 
-export const usePriceHistory = (symbol = 'BTC-USDT', interval = '1h', limit = 30) => {
+export const usePriceHistory = (symbol = 'BTC-USDT', interval = '1h', limit = 168) => {
   return useQuery({
     queryKey: ['price-history', symbol, interval, limit],
     queryFn: async (): Promise<PriceCandle[]> => {
