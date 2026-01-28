@@ -5,8 +5,8 @@ const StrategyExplainer = () => {
   const { language } = useLanguage();
 
   const content = language === 'pl' ? {
-    title: 'Strategia Godzinowa Bollingera',
-    subtitle: 'Transakcje co godzinę ze skalowanym wolumenem (base×1.1 do base×2.0)',
+    title: 'Strategia Godzinowa',
+    subtitle: 'Transakcje co godzinę',
     steps: [
       {
         icon: Clock,
@@ -26,23 +26,11 @@ const StrategyExplainer = () => {
         description: 'Sprzedaż gdy cena jest powyżej średniej kroczącej. Wolumen rośnie im bliżej górnej wstęgi',
         color: 'bitcoin-orange',
       },
-      {
-        icon: Pause,
-        title: 'Strefa Neutralna (±10%)',
-        description: 'Brak transakcji gdy cena jest w okolicy ±10% od średniej kroczącej (MA)',
-        color: 'warning',
-      },
-      {
-        icon: Calculator,
-        title: 'Wzór na Wolumen',
-        description: 'Wolumen = kwota_bazowa × (1.1 + 0.9 × odległość). Min: base×1.1, Max: base×2.0',
-        color: 'muted',
-      },
     ],
     note: 'SYMULACJA • Tryb demonstracyjny bez rzeczywistych transakcji',
   } : {
-    title: 'Bollinger Hourly Strategy',
-    subtitle: 'Hourly trades with scaled volume (base×1.1 to base×2.0)',
+    title: 'Hourly Strategy',
+    subtitle: 'Hourly trades',
     steps: [
       {
         icon: Clock,
