@@ -1,11 +1,13 @@
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useLanguage } from '@/contexts/LanguageContext';
 import { useAuth } from '@/contexts/AuthContext';
 import { useBotConfig, useBotTrades, useBotStats, useCreateBotConfig, useUpdateBotConfig } from '@/hooks/useBotData';
 import { usePriceHistory } from '@/hooks/usePriceHistory';
 import { Button } from '@/components/ui/button';
-import { Bitcoin, TrendingUp, Bot, Play, Square, Clock, Loader2, Sparkles, RefreshCw } from 'lucide-react';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { Bitcoin, TrendingUp, Bot, Play, Square, Clock, Loader2, Sparkles, RefreshCw, Settings } from 'lucide-react';
 import BollingerChart from '@/components/BollingerChart';
 import TradeHistory from '@/components/TradeHistory';
 import StrategyExplainer from '@/components/StrategyExplainer';
@@ -25,8 +27,18 @@ const Dashboard = () => {
   const createConfig = useCreateBotConfig();
   const updateConfig = useUpdateBotConfig();
 
-  // Rzeczywista historia cen z BingX
-  const { data: priceHistory = [], isLoading: pricesLoading, refetch: refetchPrices } = usePriceHistory('BTC-USDT', '1h', 30);
+  // State for base amount input
+  const [baseAmountInput, setBaseAmountInput] = useState<string>('6');
+
+  // Sync base amount input with config
+  useEffect(() => {
+    if (botConfig?.base_trade_usd) {
+      setBaseAmountInput(String(botConfig.base_trade_usd));
+    }
+  }, [botConfig?.base_trade_usd]);
+
+  // Real price history from BingX - 168 candles = 7 days
+  const { data: priceHistory = [], isLoading: pricesLoading, refetch: refetchPrices } = usePriceHistory('BTC-USDT', '1h', 168);
 
   useEffect(() => {
     if (!authLoading && !user) {
@@ -96,7 +108,7 @@ const Dashboard = () => {
       <div className="container mx-auto px-4 py-8">
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
           {/* Stats Cards */}
-          <div className="lg:col-span-3 grid grid-cols-1 md:grid-cols-3 gap-4">
+          <div className="lg:col-span-3 grid grid-cols-1 md:grid-cols-4 gap-4">
             {/* Balance Card */}
             <div className="cyber-card rounded-xl p-6 neon-border">
               <div className="flex items-center gap-3 mb-4">
@@ -158,6 +170,42 @@ const Dashboard = () => {
                 )}
               </Button>
             </div>
+
+            {/* Bot Configuration Card */}
+            <div className="cyber-card rounded-xl p-6">
+              <div className="flex items-center gap-3 mb-4">
+                <div className="w-10 h-10 rounded-lg bg-muted flex items-center justify-center">
+                  <Settings className="w-5 h-5 text-muted-foreground" />
+                </div>
+                <span className="text-muted-foreground font-medium">
+                  {language === 'pl' ? 'Kwota Bazowa' : 'Base Amount'}
+                </span>
+              </div>
+              <div className="space-y-2">
+                <div className="flex items-center gap-2">
+                  <Input
+                    id="baseAmount"
+                    type="number"
+                    min="1"
+                    max="100"
+                    step="0.5"
+                    value={baseAmountInput}
+                    onChange={(e) => setBaseAmountInput(e.target.value)}
+                    onBlur={() => {
+                      const value = parseFloat(baseAmountInput);
+                      if (!isNaN(value) && value >= 1 && value <= 100) {
+                        updateConfig.mutate({ base_trade_usd: value });
+                      }
+                    }}
+                    className="w-24 text-center font-mono"
+                  />
+                  <span className="text-muted-foreground">USD</span>
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  Min: {((botConfig?.base_trade_usd || 6) * 1.1).toFixed(2)} | Max: {((botConfig?.base_trade_usd || 6) * 2).toFixed(2)} USD
+                </p>
+              </div>
+            </div>
           </div>
 
           {/* Bollinger Chart */}
@@ -165,7 +213,7 @@ const Dashboard = () => {
             <div className="flex items-center justify-between mb-4">
               <h2 className="font-display text-xl font-bold text-foreground flex items-center gap-2">
                 <Bot className="w-5 h-5 text-bitcoin-orange" />
-                {language === 'pl' ? 'Wykres Strategii Bollingera (1h)' : 'Bollinger Strategy Chart (1h)'}
+                {language === 'pl' ? 'Wykres Strategii Bollingera (1h, 7 dni)' : 'Bollinger Strategy Chart (1h, 7 days)'}
               </h2>
               <Button
                 variant="ghost"

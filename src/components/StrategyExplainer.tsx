@@ -1,65 +1,77 @@
-import { TrendingDown, TrendingUp, Pause, Calculator } from 'lucide-react';
+import { TrendingDown, TrendingUp, Pause, Calculator, Clock } from 'lucide-react';
 import { useLanguage } from '@/contexts/LanguageContext';
 
 const StrategyExplainer = () => {
   const { language } = useLanguage();
 
   const content = language === 'pl' ? {
-    title: 'Strategia Wolumenowa Bollingera',
-    subtitle: 'Codzienna strategia ze skalowanym wolumenem (6-12 USD)',
+    title: 'Strategia Godzinowa Bollingera',
+    subtitle: 'Transakcje co godzinę ze skalowanym wolumenem (base×1.1 do base×2.0)',
     steps: [
+      {
+        icon: Clock,
+        title: 'Interwał godzinny',
+        description: 'Bot analizuje cenę zamknięcia każdej świecy 1h i podejmuje decyzję o transakcji',
+        color: 'muted',
+      },
       {
         icon: TrendingDown,
         title: 'Kupno (poniżej MA)',
-        description: 'Codzienne kupno gdy cena jest poniżej średniej. Wolumen: 6-12 USD zależnie od odległości do dolnej wstęgi',
+        description: 'Kupno gdy cena jest poniżej średniej kroczącej. Wolumen rośnie im bliżej dolnej wstęgi',
         color: 'success',
       },
       {
         icon: TrendingUp,
         title: 'Sprzedaż (powyżej MA)',
-        description: 'Codzienna sprzedaż gdy cena jest powyżej średniej. Wolumen skalowany wg pozycji do górnej wstęgi',
+        description: 'Sprzedaż gdy cena jest powyżej średniej kroczącej. Wolumen rośnie im bliżej górnej wstęgi',
         color: 'bitcoin-orange',
       },
       {
         icon: Pause,
-        title: 'Strefa Neutralna',
+        title: 'Strefa Neutralna (±10%)',
         description: 'Brak transakcji gdy cena jest w okolicy ±10% od średniej kroczącej (MA)',
         color: 'warning',
       },
       {
         icon: Calculator,
         title: 'Wzór na Wolumen',
-        description: 'Wolumen = (1 + odległość_ratio) × 6 USD, maksymalnie 12 USD dziennie',
+        description: 'Wolumen = kwota_bazowa × (1.1 + 0.9 × odległość). Min: base×1.1, Max: base×2.0',
         color: 'muted',
       },
     ],
     note: 'SYMULACJA • Tryb demonstracyjny bez rzeczywistych transakcji',
   } : {
-    title: 'Bollinger Volume Strategy',
-    subtitle: 'Daily strategy with scaled volume (6-12 USD)',
+    title: 'Bollinger Hourly Strategy',
+    subtitle: 'Hourly trades with scaled volume (base×1.1 to base×2.0)',
     steps: [
+      {
+        icon: Clock,
+        title: 'Hourly Interval',
+        description: 'Bot analyzes the closing price of each 1h candle and makes a trading decision',
+        color: 'muted',
+      },
       {
         icon: TrendingDown,
         title: 'Buy (below MA)',
-        description: 'Daily buy when price is below moving average. Volume: 6-12 USD based on distance to lower band',
+        description: 'Buy when price is below moving average. Volume increases closer to lower band',
         color: 'success',
       },
       {
         icon: TrendingUp,
         title: 'Sell (above MA)',
-        description: 'Daily sell when price is above moving average. Volume scaled by position to upper band',
+        description: 'Sell when price is above moving average. Volume increases closer to upper band',
         color: 'bitcoin-orange',
       },
       {
         icon: Pause,
-        title: 'Neutral Zone',
+        title: 'Neutral Zone (±10%)',
         description: 'No transaction when price is within ±10% of the moving average (MA)',
         color: 'warning',
       },
       {
         icon: Calculator,
         title: 'Volume Formula',
-        description: 'Volume = (1 + distance_ratio) × 6 USD, maximum 12 USD daily',
+        description: 'Volume = base_amount × (1.1 + 0.9 × distance). Min: base×1.1, Max: base×2.0',
         color: 'muted',
       },
     ],
@@ -83,7 +95,7 @@ const StrategyExplainer = () => {
       </h3>
       <p className="text-muted-foreground text-sm mb-6">{content.subtitle}</p>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
         {content.steps.map((step, index) => (
           <div
             key={index}

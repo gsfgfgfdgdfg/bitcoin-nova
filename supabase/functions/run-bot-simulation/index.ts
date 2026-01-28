@@ -41,8 +41,8 @@ const calculateBollingerBands = (prices: number[], period = 20, multiplier = 2):
   };
 };
 
-// Daily volume calculation based on distance from MA
-interface DailyVolumeSignal {
+// Hourly volume calculation based on distance from MA with new min/max formula
+interface HourlyVolumeSignal {
   action: 'BUY' | 'SELL' | 'HOLD';
   volumeUsd: number;
   distanceRatio: number;
@@ -50,13 +50,18 @@ interface DailyVolumeSignal {
   reason: string;
 }
 
-const calculateDailyVolume = (
+const calculateHourlyVolume = (
   bands: BollingerBands,
   baseAmount: number = 6,
-  maxAmount: number = 12,
   holdZonePercent: number = 10
-): DailyVolumeSignal => {
+): HourlyVolumeSignal => {
   const { price, upper, middle, lower } = bands;
+  
+  // Min and max based on base amount (1.1x to 2.0x)
+  const minMultiplier = 1.1;
+  const maxMultiplier = 2.0;
+  const minVolume = baseAmount * minMultiplier;
+  const maxVolume = baseAmount * maxMultiplier;
   
   const upperBandWidth = upper - middle;
   const lowerBandWidth = middle - lower;
@@ -92,8 +97,9 @@ const calculateDailyVolume = (
   if (price < middle) {
     const distanceFromMA = middle - price;
     const ratio = Math.min(1, distanceFromMA / lowerBandWidth);
-    const multiplier = 1 + ratio;
-    const volume = Math.min(maxAmount, multiplier * baseAmount);
+    // Multiplier from 1.1 to 2.0
+    const multiplier = minMultiplier + (maxMultiplier - minMultiplier) * ratio;
+    const volume = Math.min(maxVolume, Math.max(minVolume, baseAmount * multiplier));
     
     return {
       action: 'BUY',
@@ -107,8 +113,8 @@ const calculateDailyVolume = (
   // SELL - price above MA
   const distanceFromMA = price - middle;
   const ratio = Math.min(1, distanceFromMA / upperBandWidth);
-  const multiplier = 1 + ratio;
-  const volume = Math.min(maxAmount, multiplier * baseAmount);
+  const multiplier = minMultiplier + (maxMultiplier - minMultiplier) * ratio;
+  const volume = Math.min(maxVolume, Math.max(minVolume, baseAmount * multiplier));
   
   return {
     action: 'SELL',
@@ -126,16 +132,19 @@ Deno.serve(async (req) => {
   }
 
   try {
-    console.log("[run-bot-simulation] Starting daily volume simulation...");
+    console.log("[run-bot-simulation] Starting hourly volume simulation...");
 
     // Initialize Supabase client with service role
     const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
     const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
     const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
-    // Get today's date for daily limit check
-    const today = new Date().toISOString().split('T')[0];
-    console.log("[run-bot-simulation] Today:", today);
+    // Get current hour (rounded to full hour) for hourly limit check
+    const currentHour = new Date();
+    currentHour.setMinutes(0, 0, 0);
+    currentHour.setMilliseconds(0);
+    const currentHourISO = currentHour.toISOString();
+    console.log("[run-bot-simulation] Current hour:", currentHourISO);
 
     // Get all active bot configs (bots that are running)
     const { data: activeConfigs, error: configError } = await supabase
@@ -192,29 +201,33 @@ Deno.serve(async (req) => {
 
     const results: { userId: string; action: string; details?: Record<string, unknown> }[] = [];
 
-    // Process each active bot with NEW DAILY VOLUME STRATEGY
+    // Process each active bot with HOURLY VOLUME STRATEGY
     for (const config of activeConfigs) {
       const userId = config.user_id;
       console.log(`[run-bot-simulation] Processing bot for user: ${userId}`);
 
-      // Check if already traded today
-      if (config.last_trade_date === today) {
-        console.log(`[run-bot-simulation] User ${userId} already traded today, skipping`);
-        results.push({
-          userId,
-          action: "DAILY_LIMIT_REACHED",
-          details: { lastTradeDate: config.last_trade_date }
-        });
-        continue;
+      // Check if already traded this hour
+      const lastTradeHour = config.last_trade_hour ? new Date(config.last_trade_hour) : null;
+      if (lastTradeHour) {
+        lastTradeHour.setMinutes(0, 0, 0);
+        lastTradeHour.setMilliseconds(0);
+        
+        if (lastTradeHour.getTime() === currentHour.getTime()) {
+          console.log(`[run-bot-simulation] User ${userId} already traded this hour, skipping`);
+          results.push({
+            userId,
+            action: "HOURLY_LIMIT_REACHED",
+            details: { lastTradeHour: config.last_trade_hour, currentHour: currentHourISO }
+          });
+          continue;
+        }
       }
 
-      // Calculate daily volume signal based on distance from MA
-      const signal = calculateDailyVolume(
-        bands,
-        Number(config.base_trade_usd) || 6,
-        Number(config.max_daily_usd) || 12,
-        Number(config.hold_zone_percent) || 10
-      );
+      // Calculate hourly volume signal based on distance from MA
+      const baseAmount = Number(config.base_trade_usd) || 6;
+      const holdZonePercent = Number(config.hold_zone_percent) || 10;
+      
+      const signal = calculateHourlyVolume(bands, baseAmount, holdZonePercent);
 
       console.log(`[run-bot-simulation] Signal for user ${userId}:`, JSON.stringify(signal));
 
@@ -251,7 +264,7 @@ Deno.serve(async (req) => {
             amount_btc: amountBtc,
             price_usd: currentPrice,
             volume_usd: signal.volumeUsd,
-            status: "closed", // Daily trades are instant/closed
+            status: "closed", // Hourly trades are instant/closed
             profit_usd: 0,
             closed_at: new Date().toISOString(),
           });
@@ -261,13 +274,13 @@ Deno.serve(async (req) => {
           continue;
         }
 
-        // Update balance (subtract USD spent) and mark today as traded
+        // Update balance (subtract USD spent) and mark this hour as traded
         const newBalance = currentBalance - signal.volumeUsd;
         await supabase
           .from("bot_config")
           .update({ 
             simulated_balance_usd: newBalance,
-            last_trade_date: today 
+            last_trade_hour: currentHourISO 
           })
           .eq("id", config.id);
 
@@ -306,13 +319,13 @@ Deno.serve(async (req) => {
           continue;
         }
 
-        // Update balance (add USD received) and mark today as traded
+        // Update balance (add USD received) and mark this hour as traded
         const newBalance = currentBalance + signal.volumeUsd;
         await supabase
           .from("bot_config")
           .update({ 
             simulated_balance_usd: newBalance,
-            last_trade_date: today 
+            last_trade_hour: currentHourISO 
           })
           .eq("id", config.id);
 
@@ -334,6 +347,7 @@ Deno.serve(async (req) => {
 
     const response = {
       timestamp: new Date().toISOString(),
+      currentHour: currentHourISO,
       processed: activeConfigs.length,
       currentPrice,
       bollingerBands: bands,

@@ -65,6 +65,7 @@ export type Database = {
           id: string
           is_running: boolean | null
           last_trade_date: string | null
+          last_trade_hour: string | null
           max_daily_usd: number | null
           simulated_balance_usd: number | null
           stop_loss_percent: number | null
@@ -81,6 +82,7 @@ export type Database = {
           id?: string
           is_running?: boolean | null
           last_trade_date?: string | null
+          last_trade_hour?: string | null
           max_daily_usd?: number | null
           simulated_balance_usd?: number | null
           stop_loss_percent?: number | null
@@ -97,6 +99,7 @@ export type Database = {
           id?: string
           is_running?: boolean | null
           last_trade_date?: string | null
+          last_trade_hour?: string | null
           max_daily_usd?: number | null
           simulated_balance_usd?: number | null
           stop_loss_percent?: number | null

@@ -132,13 +132,19 @@ export interface DailyVolumeSignal {
   multiplier: number;
 }
 
-export const calculateDailyVolume = (
+// NEW: Hourly volume calculation with dynamic min/max based on base amount
+export const calculateHourlyVolume = (
   bands: BollingerBands,
   baseAmount: number = 6,
-  maxAmount: number = 12,
   holdZonePercent: number = 10
 ): DailyVolumeSignal => {
   const { price, upper, middle, lower } = bands;
+  
+  // Min and max based on base amount
+  const minMultiplier = 1.1;
+  const maxMultiplier = 2.0;
+  const minVolume = baseAmount * minMultiplier;
+  const maxVolume = baseAmount * maxMultiplier;
   
   const upperBandWidth = upper - middle;
   const lowerBandWidth = middle - lower;
@@ -174,8 +180,9 @@ export const calculateDailyVolume = (
   if (price < middle) {
     const distanceFromMA = middle - price;
     const ratio = Math.min(1, distanceFromMA / lowerBandWidth);
-    const multiplier = 1 + ratio;
-    const volume = Math.min(maxAmount, multiplier * baseAmount);
+    // Multiplier from 1.1 to 2.0
+    const multiplier = minMultiplier + (maxMultiplier - minMultiplier) * ratio;
+    const volume = Math.min(maxVolume, Math.max(minVolume, baseAmount * multiplier));
     
     return {
       action: 'BUY',
@@ -189,8 +196,8 @@ export const calculateDailyVolume = (
   // SELL - price above MA
   const distanceFromMA = price - middle;
   const ratio = Math.min(1, distanceFromMA / upperBandWidth);
-  const multiplier = 1 + ratio;
-  const volume = Math.min(maxAmount, multiplier * baseAmount);
+  const multiplier = minMultiplier + (maxMultiplier - minMultiplier) * ratio;
+  const volume = Math.min(maxVolume, Math.max(minVolume, baseAmount * multiplier));
   
   return {
     action: 'SELL',
@@ -200,3 +207,7 @@ export const calculateDailyVolume = (
     reason: `Sprzedaż: ${(ratio * 100).toFixed(1)}% drogi do górnej wstęgi`
   };
 };
+
+// Keep old function for backward compatibility but mark as deprecated
+/** @deprecated Use calculateHourlyVolume instead */
+export const calculateDailyVolume = calculateHourlyVolume;
