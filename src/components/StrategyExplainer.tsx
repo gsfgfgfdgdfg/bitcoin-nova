@@ -62,18 +62,6 @@ const StrategyExplainer = () => {
         description: 'Sell when price is above moving average. Volume increases closer to upper band',
         color: 'bitcoin-orange',
       },
-      {
-        icon: Pause,
-        title: 'Neutral Zone (±10%)',
-        description: 'No transaction when price is within ±10% of the moving average (MA)',
-        color: 'warning',
-      },
-      {
-        icon: Calculator,
-        title: 'Volume Formula',
-        description: 'Volume = base_amount × (1.1 + 0.9 × distance). Min: base×1.1, Max: base×2.0',
-        color: 'muted',
-      },
     ],
     note: 'SIMULATION • Demo mode without real transactions',
   };
