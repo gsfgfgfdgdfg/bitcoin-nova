@@ -1,205 +1,104 @@
 
 
-## Plan: Nowa Strategia Wolumenowa z Bollingerem
+## Plan: Transakcje Co Godzinę + Wykres Tygodniowy + Edycja Kwoty Bazowej
 
 ---
 
-### Przegląd Nowej Strategii
+### Przegląd Zmian
 
-Całkowita zmiana logiki bota tradingowego:
-
-| Element | Stara strategia | Nowa strategia |
-|---------|-----------------|----------------|
-| Częstotliwość | Tylko przy granicy wstęgi | **Codziennie** |
-| Kwota bazowa | 1% portfela | **6 USD** |
-| Max dzienny | Brak limitu | **12 USD** |
-| Sygnał BUY | Cena przy dolnej wstędze | **Cena poniżej MA** |
-| Sygnał SELL | Cena przy górnej wstędze | **Cena powyżej MA** |
-| Strefa HOLD | Brak | **±10% od MA** |
-| Skalowanie | Stałe | **Wg odległości od wstęgi** |
+| Element | Było | Będzie |
+|---------|------|--------|
+| Częstotliwość transakcji | Raz dziennie | **Co godzinę** |
+| Zakres wykresu | 30 świec (30 godzin) | **168 świec (7 dni)** |
+| Min wolumen | 6 USD (stałe) | **base × 1.1** (np. 6.6 USD) |
+| Max wolumen | 12 USD (stałe) | **base × 2** (np. 12 USD) |
+| Edycja kwoty bazowej | Brak | **Pole input w Dashboard** |
+| Limit transakcji | `last_trade_date` (dzienny) | **`last_trade_hour`** (godzinny) |
 
 ---
 
-### Wzór na Wolumen Transakcji
+### Nowy Wzór na Wolumen
 
-```text
-┌─────────────────────────────────────────────────────────────────┐
-│                     UPPER BAND (89772.15)                        │
-│                           ↑                                      │
-│                     SPRZEDAŻ (SELL)                              │
-│                           │                                      │
-│        Wolumen = (1 + odległość_ratio) × 6 USD                   │
-│        gdzie: ratio = (cena - MA) / (upper - MA)                 │
-│                           │                                      │
-│  ┄┄┄┄┄┄┄┄┄┄┄┄┄┄ STREFA HOLD (+10%) ┄┄┄┄┄┄┄┄┄┄┄┄┄┄                │
-│                     MA (89434.49)                                 │
-│  ┄┄┄┄┄┄┄┄┄┄┄┄┄┄ STREFA HOLD (-10%) ┄┄┄┄┄┄┄┄┄┄┄┄┄┄                │
-│                           │                                      │
-│        Wolumen = (1 + odległość_ratio) × 6 USD                   │
-│        gdzie: ratio = (MA - cena) / (MA - lower)                 │
-│                           │                                      │
-│                     KUPNO (BUY)                                   │
-│                           ↓                                      │
-│                     LOWER BAND (89096.84)                         │
-└─────────────────────────────────────────────────────────────────┘
 ```
+minVolume = baseAmount × 1.1        (np. 6 × 1.1 = 6.6 USD)
+maxVolume = baseAmount × 2.0        (np. 6 × 2.0 = 12 USD)
+
+multiplier = 1.1 + (0.9 × distanceRatio)   // od 1.1x do 2.0x
+volume = baseAmount × multiplier
+volume = clamp(volume, minVolume, maxVolume)
+```
+
+| Odległość od MA | Ratio | Multiplier | Wolumen (base=6) |
+|-----------------|-------|------------|------------------|
+| 0% (przy MA) | 0.0 | 1.1x | 6.60 USD |
+| 50% drogi | 0.5 | 1.55x | 9.30 USD |
+| 100% (przy wstędze) | 1.0 | 2.0x | 12.00 USD |
 
 ---
 
-### Algorytm Kalkulacji Wolumenu
+### Część 1: Migracja Bazy Danych
 
-```typescript
-interface VolumeCalculation {
-  action: 'BUY' | 'SELL' | 'HOLD';
-  volumeUsd: number;
-  distanceRatio: number;
-  reason: string;
-}
-
-function calculateDailyVolume(
-  price: number,
-  upper: number,
-  middle: number,
-  lower: number,
-  baseAmount: number = 6,
-  maxAmount: number = 12
-): VolumeCalculation {
-  
-  const upperBandWidth = upper - middle;  // 337.66
-  const lowerBandWidth = middle - lower;  // 337.65
-  
-  // Strefa HOLD: ±10% od średniej
-  const holdZoneUpper = middle + upperBandWidth * 0.10;
-  const holdZoneLower = middle - lowerBandWidth * 0.10;
-  
-  // Jeśli cena w strefie HOLD - nie rób nic
-  if (price >= holdZoneLower && price <= holdZoneUpper) {
-    return {
-      action: 'HOLD',
-      volumeUsd: 0,
-      distanceRatio: 0,
-      reason: 'Cena w strefie neutralnej (±10% od MA)'
-    };
-  }
-  
-  // Cena PONIŻEJ MA → KUPNO
-  if (price < middle) {
-    const distanceFromMA = middle - price;
-    const ratio = Math.min(1, distanceFromMA / lowerBandWidth);
-    const volume = Math.min(maxAmount, (1 + ratio) * baseAmount);
-    
-    return {
-      action: 'BUY',
-      volumeUsd: volume,
-      distanceRatio: ratio,
-      reason: `Kupno: cena ${ratio.toFixed(1)}% drogi do dolnej wstęgi`
-    };
-  }
-  
-  // Cena POWYŻEJ MA → SPRZEDAŻ
-  const distanceFromMA = price - middle;
-  const ratio = Math.min(1, distanceFromMA / upperBandWidth);
-  const volume = Math.min(maxAmount, (1 + ratio) * baseAmount);
-  
-  return {
-    action: 'SELL',
-    volumeUsd: volume,
-    distanceRatio: ratio,
-    reason: `Sprzedaż: cena ${ratio.toFixed(1)}% drogi do górnej wstęgi`
-  };
-}
-```
-
----
-
-### Weryfikacja na Twoich Przykładach
-
-**Przykład 1: Cena 89291.01 (poniżej MA)**
-```
-upper = 89772.15, MA = 89434.49, lower = 89096.84
-lowerBandWidth = 89434.49 - 89096.84 = 337.65
-distanceFromMA = 89434.49 - 89291.01 = 143.48
-ratio = 143.48 / 337.65 = 0.4249
-volume = (1 + 0.4249) × 6 = 8.55 USD ✓ BUY
-```
-
-**Przykład 2: Cena 89591.01 (powyżej MA)**
-```
-upper = 89772.15, MA = 89434.49, lower = 89096.84
-upperBandWidth = 89772.15 - 89434.49 = 337.66
-distanceFromMA = 89591.01 - 89434.49 = 156.52
-ratio = 156.52 / 337.66 = 0.4635
-volume = (1 + 0.4635) × 6 = 8.78 USD ✓ SELL
-```
-
----
-
-### Część 1: Aktualizacja Tabeli `bot_config`
-
-Dodanie nowych kolumn dla parametrów strategii:
+Zmiana kolumny `last_trade_date` na `last_trade_hour`:
 
 ```sql
-ALTER TABLE public.bot_config
-ADD COLUMN IF NOT EXISTS base_trade_usd DECIMAL(10, 2) DEFAULT 6.00,
-ADD COLUMN IF NOT EXISTS max_daily_usd DECIMAL(10, 2) DEFAULT 12.00,
-ADD COLUMN IF NOT EXISTS hold_zone_percent DECIMAL(5, 2) DEFAULT 10.00,
-ADD COLUMN IF NOT EXISTS last_trade_date DATE;
+ALTER TABLE public.bot_config 
+ADD COLUMN IF NOT EXISTS last_trade_hour TIMESTAMPTZ;
+
+-- Kopiuj istniejące dane (opcjonalnie)
+UPDATE public.bot_config 
+SET last_trade_hour = last_trade_date::timestamptz 
+WHERE last_trade_date IS NOT NULL;
 ```
 
 ---
 
 ### Część 2: Aktualizacja `src/lib/bollinger.ts`
 
-Dodanie nowych funkcji:
+Nowy wzór z parametrami:
 
 ```typescript
-export interface DailyVolumeSignal {
-  action: 'BUY' | 'SELL' | 'HOLD';
-  volumeUsd: number;
-  distanceRatio: number;
-  reason: string;
-  multiplier: number;
-}
-
-export const calculateDailyVolume = (
+export const calculateHourlyVolume = (
   bands: BollingerBands,
   baseAmount: number = 6,
-  maxAmount: number = 12,
   holdZonePercent: number = 10
 ): DailyVolumeSignal => {
   const { price, upper, middle, lower } = bands;
   
+  // Min i max na podstawie kwoty bazowej
+  const minMultiplier = 1.1;
+  const maxMultiplier = 2.0;
+  const minVolume = baseAmount * minMultiplier;
+  const maxVolume = baseAmount * maxMultiplier;
+  
   const upperBandWidth = upper - middle;
   const lowerBandWidth = middle - lower;
   
-  // Strefa HOLD: ±holdZonePercent% od średniej
+  if (upperBandWidth <= 0 || lowerBandWidth <= 0) {
+    return { action: 'HOLD', volumeUsd: 0, distanceRatio: 0, multiplier: 1, reason: 'Invalid band width' };
+  }
+  
+  // Strefa HOLD: ±holdZonePercent% od MA
   const holdZoneThreshold = holdZonePercent / 100;
   const holdZoneUpper = middle + upperBandWidth * holdZoneThreshold;
   const holdZoneLower = middle - lowerBandWidth * holdZoneThreshold;
   
-  // Strefa neutralna
   if (price >= holdZoneLower && price <= holdZoneUpper) {
-    return {
-      action: 'HOLD',
-      volumeUsd: 0,
-      distanceRatio: 0,
-      multiplier: 1,
-      reason: `Cena w strefie neutralnej (±${holdZonePercent}% od MA)`
-    };
+    return { action: 'HOLD', volumeUsd: 0, distanceRatio: 0, multiplier: 1, reason: 'Cena w strefie neutralnej' };
   }
   
   // KUPNO - cena poniżej MA
   if (price < middle) {
     const distanceFromMA = middle - price;
     const ratio = Math.min(1, distanceFromMA / lowerBandWidth);
-    const multiplier = 1 + ratio;
-    const volume = Math.min(maxAmount, multiplier * baseAmount);
+    // Multiplier od 1.1 do 2.0
+    const multiplier = minMultiplier + (maxMultiplier - minMultiplier) * ratio;
+    const volume = Math.min(maxVolume, Math.max(minVolume, baseAmount * multiplier));
     
     return {
       action: 'BUY',
       volumeUsd: Math.round(volume * 100) / 100,
       distanceRatio: ratio,
-      multiplier,
+      multiplier: Math.round(multiplier * 100) / 100,
       reason: `Kupno: ${(ratio * 100).toFixed(1)}% drogi do dolnej wstęgi`
     };
   }
@@ -207,14 +106,14 @@ export const calculateDailyVolume = (
   // SPRZEDAŻ - cena powyżej MA
   const distanceFromMA = price - middle;
   const ratio = Math.min(1, distanceFromMA / upperBandWidth);
-  const multiplier = 1 + ratio;
-  const volume = Math.min(maxAmount, multiplier * baseAmount);
+  const multiplier = minMultiplier + (maxMultiplier - minMultiplier) * ratio;
+  const volume = Math.min(maxVolume, Math.max(minVolume, baseAmount * multiplier));
   
   return {
     action: 'SELL',
     volumeUsd: Math.round(volume * 100) / 100,
     distanceRatio: ratio,
-    multiplier,
+    multiplier: Math.round(multiplier * 100) / 100,
     reason: `Sprzedaż: ${(ratio * 100).toFixed(1)}% drogi do górnej wstęgi`
   };
 };
@@ -222,130 +121,193 @@ export const calculateDailyVolume = (
 
 ---
 
-### Część 3: Aktualizacja Edge Function `run-bot-simulation`
+### Część 3: Aktualizacja Edge Function
 
-Główne zmiany:
-1. Codzienne transakcje (sprawdzenie `last_trade_date`)
-2. Nowy wzór na wolumen
-3. Logika BUY/SELL oparta o pozycję względem MA
+Zmiana z dziennego na godzinny limit:
 
 ```typescript
-// Sprawdź czy dzisiaj już była transakcja
-const today = new Date().toISOString().split('T')[0];
-if (config.last_trade_date === today) {
-  results.push({ userId, action: 'DAILY_LIMIT_REACHED' });
+// Pobierz aktualną godzinę (zaokrągloną do pełnej godziny)
+const currentHour = new Date();
+currentHour.setMinutes(0, 0, 0);
+const currentHourISO = currentHour.toISOString();
+
+// Sprawdź czy już była transakcja w tej godzinie
+const lastTradeHour = config.last_trade_hour ? new Date(config.last_trade_hour) : null;
+if (lastTradeHour && lastTradeHour.getTime() === currentHour.getTime()) {
+  console.log(`[run-bot-simulation] User ${userId} already traded this hour`);
+  results.push({ userId, action: 'HOURLY_LIMIT_REACHED' });
   continue;
 }
 
-// Oblicz wolumen wg nowej strategii
-const signal = calculateDailyVolume(bands, 
-  config.base_trade_usd || 6,
-  config.max_daily_usd || 12,
-  config.hold_zone_percent || 10
-);
+// ... logika transakcji ...
 
-if (signal.action === 'HOLD') {
-  results.push({ userId, action: 'HOLD', details: { reason: signal.reason } });
-  continue;
-}
-
-if (signal.action === 'BUY') {
-  // Kup BTC za obliczony wolumen USD
-  const amountBtc = signal.volumeUsd / currentPrice;
-  await createBuyTrade(userId, amountBtc, currentPrice, signal.volumeUsd);
-}
-
-if (signal.action === 'SELL') {
-  // Sprzedaj BTC o wartości obliczonego wolumenu USD
-  const amountBtc = signal.volumeUsd / currentPrice;
-  await createSellTrade(userId, amountBtc, currentPrice, signal.volumeUsd);
-}
-
-// Zaktualizuj datę ostatniej transakcji
+// Zaktualizuj ostatnią godzinę transakcji
 await supabase
   .from('bot_config')
-  .update({ last_trade_date: today })
+  .update({ last_trade_hour: currentHourISO })
   .eq('id', config.id);
 ```
 
 ---
 
-### Część 4: Aktualizacja Frontend
+### Część 4: Aktualizacja `usePriceHistory.ts`
 
-#### 4.1 StrategyExplainer.tsx - Nowy opis strategii
+Zwiększenie zakresu do 168 świec (tydzień):
 
 ```typescript
-const steps = [
-  {
-    icon: TrendingDown,
-    title: 'Kupno (poniżej MA)',
-    description: 'Codzienne kupno gdy cena jest poniżej średniej. Wolumen: 6-12 USD zależnie od odległości',
-  },
-  {
-    icon: TrendingUp,
-    title: 'Sprzedaż (powyżej MA)',
-    description: 'Codzienna sprzedaż gdy cena jest powyżej średniej. Wolumen skalowany wg pozycji',
-  },
-  {
-    icon: Pause,
-    title: 'Strefa Neutralna',
-    description: 'Brak transakcji gdy cena jest w okolicy ±10% od MA',
-  },
-  {
-    icon: Calculator,
-    title: 'Wzór na Wolumen',
-    description: 'Wolumen = (1 + odległość_ratio) × 6 USD, max 12 USD/dzień',
-  },
-];
+export const usePriceHistory = (symbol = 'BTC-USDT', interval = '1h', limit = 168) => {
+  // ... reszta bez zmian
+};
 ```
 
-#### 4.2 Dashboard.tsx - Wyświetlanie aktualnego sygnału
-
-Dodanie karty pokazującej:
-- Aktualny sygnał (BUY/SELL/HOLD)
-- Obliczony wolumen
-- Mnożnik (1.0x - 2.0x)
-- Odległość od wstęgi w %
+W Dashboard.tsx:
+```typescript
+const { data: priceHistory = [], ... } = usePriceHistory('BTC-USDT', '1h', 168);
+```
 
 ---
 
-### Część 5: Struktura Plików
+### Część 5: Dashboard - Pole Kwoty Bazowej
+
+Dodanie edytowalnego pola w Dashboard:
+
+```typescript
+// Nowa karta konfiguracji
+<div className="cyber-card rounded-xl p-6">
+  <h2>Konfiguracja Bota</h2>
+  
+  <div className="space-y-4">
+    <div>
+      <Label htmlFor="baseAmount">Kwota bazowa (USD)</Label>
+      <Input
+        id="baseAmount"
+        type="number"
+        min="1"
+        max="100"
+        step="0.5"
+        value={botConfig?.base_trade_usd || 6}
+        onChange={(e) => updateConfig.mutate({ 
+          base_trade_usd: parseFloat(e.target.value) 
+        })}
+      />
+      <p className="text-xs text-muted-foreground mt-1">
+        Min: {(botConfig?.base_trade_usd || 6) * 1.1} USD | 
+        Max: {(botConfig?.base_trade_usd || 6) * 2} USD
+      </p>
+    </div>
+  </div>
+</div>
+```
+
+---
+
+### Część 6: Aktualizacja StrategyExplainer
+
+Nowy opis strategii:
+
+```typescript
+{
+  icon: Clock,
+  title: 'Interwał godzinny',
+  description: 'Bot analizuje cenę zamknięcia każdej świecy godzinowej i podejmuje decyzję o transakcji',
+},
+{
+  icon: Calculator,
+  title: 'Wzór na Wolumen',
+  description: 'Wolumen = kwota_bazowa × (1.1 + 0.9 × odległość), od base×1.1 do base×2.0',
+},
+```
+
+---
+
+### Część 7: Aktualizacja Hooka `useBotData.ts`
+
+Dodanie nowego pola i refetchInterval:
+
+```typescript
+export interface BotConfig {
+  // ... istniejące pola ...
+  last_trade_hour: string | null;  // Nowe pole
+}
+
+export const useBotConfig = () => {
+  return useQuery({
+    // ... 
+    refetchInterval: 60000,  // Auto-refresh co minutę
+    staleTime: 30000,
+  });
+};
+
+export const useBotTrades = () => {
+  return useQuery({
+    // ...
+    refetchInterval: 60000,  // Auto-refresh co minutę
+    staleTime: 30000,
+  });
+};
+```
+
+---
+
+### Część 8: Struktura Plików
 
 | Plik | Akcja | Opis |
 |------|-------|------|
-| `supabase/migrations/xxx_add_volume_columns.sql` | NOWY | Nowe kolumny w bot_config |
-| `src/lib/bollinger.ts` | EDYCJA | Nowa funkcja `calculateDailyVolume` |
-| `supabase/functions/run-bot-simulation/index.ts` | EDYCJA | Nowa logika wolumenowa |
+| `supabase/migrations/xxx_hourly_trades.sql` | NOWY | Dodaj kolumnę `last_trade_hour` |
+| `src/lib/bollinger.ts` | EDYCJA | Nowy wzór `calculateHourlyVolume()` |
+| `supabase/functions/run-bot-simulation/index.ts` | EDYCJA | Limit godzinny + nowy wzór |
+| `src/hooks/usePriceHistory.ts` | EDYCJA | Domyślny limit 168 świec |
+| `src/hooks/useBotData.ts` | EDYCJA | Nowe pole + refetchInterval |
+| `src/pages/Dashboard.tsx` | EDYCJA | Pole input dla kwoty bazowej |
 | `src/components/StrategyExplainer.tsx` | EDYCJA | Nowy opis strategii |
-| `src/pages/Dashboard.tsx` | EDYCJA | Karta aktualnego sygnału |
-| `src/hooks/useBotData.ts` | EDYCJA | Nowe pola w interfejsach |
 
 ---
 
-### Podsumowanie Logiki
+### Weryfikacja Logiki Strategii
 
-```text
-CODZIENNIE O USTALONEJ GODZINIE:
+**Obecna logika (poprawna):**
+- Cena < MA → KUPNO (proporcjonalnie do odległości od dolnej wstęgi)
+- Cena > MA → SPRZEDAŻ (proporcjonalnie do odległości od górnej wstęgi)
+- Cena w strefie ±10% od MA → HOLD
 
-1. Sprawdź czy dziś już była transakcja → jeśli tak, SKIP
+**Nowy wzór wolumenu:**
+```
+Przykład dla base = 6 USD:
 
-2. Pobierz Bollinger Bands (20, 2) z 1h świec
+Cena przy MA (ratio = 0.0):
+  multiplier = 1.1 + 0.9 × 0.0 = 1.1
+  volume = 6 × 1.1 = 6.6 USD ✓
 
-3. Oblicz strefę HOLD: MA ± 10% szerokości wstęgi
+Cena w połowie drogi (ratio = 0.5):
+  multiplier = 1.1 + 0.9 × 0.5 = 1.55
+  volume = 6 × 1.55 = 9.3 USD ✓
 
-4. JEŚLI cena w strefie HOLD:
-   → Nic nie rób
+Cena przy wstędze (ratio = 1.0):
+  multiplier = 1.1 + 0.9 × 1.0 = 2.0
+  volume = 6 × 2.0 = 12.0 USD ✓
+```
 
-5. JEŚLI cena < MA (kupno):
-   → ratio = (MA - cena) / (MA - lower)
-   → wolumen = min(12, (1 + ratio) × 6) USD
-   → KUP BTC za wolumen USD
+---
 
-6. JEŚLI cena > MA (sprzedaż):
-   → ratio = (cena - MA) / (upper - MA)
-   → wolumen = min(12, (1 + ratio) × 6) USD
-   → SPRZEDAJ BTC o wartości wolumen USD
+### Sekcja Techniczna
 
-7. Zapisz transakcję i zaktualizuj last_trade_date
+**Dlaczego godzinny interwał:**
+- Bollinger Bands są obliczane z 20 świec 1h → 20 godzin historii
+- Bot będzie mógł reagować na zmiany rynku znacznie szybciej
+- Więcej możliwości do akumulacji/sprzedaży w ciągu dnia
+
+**Dane na wykresie:**
+- 168 świec = 7 dni × 24 godziny
+- Pełny tydzień danych do analizy wizualnej
+- BB z 20 okresów widoczne na całym zakresie
+
+**Harmonogram cron (do ręcznej konfiguracji):**
+```sql
+-- Bot simulation co godzinę o :05
+SELECT cron.schedule(
+  'run-bot-simulation-hourly',
+  '5 * * * *',
+  $$ ... $$
+);
 ```
 
