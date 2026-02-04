@@ -1,313 +1,214 @@
 
 
-## Plan: Transakcje Co Godzinę + Wykres Tygodniowy + Edycja Kwoty Bazowej
+## Plan: Pełna Automatyzacja Bota Tradingowego
 
 ---
 
-### Przegląd Zmian
+### Diagnoza Problemów
 
-| Element | Było | Będzie |
-|---------|------|--------|
-| Częstotliwość transakcji | Raz dziennie | **Co godzinę** |
-| Zakres wykresu | 30 świec (30 godzin) | **168 świec (7 dni)** |
-| Min wolumen | 6 USD (stałe) | **base × 1.1** (np. 6.6 USD) |
-| Max wolumen | 12 USD (stałe) | **base × 2** (np. 12 USD) |
-| Edycja kwoty bazowej | Brak | **Pole input w Dashboard** |
-| Limit transakcji | `last_trade_date` (dzienny) | **`last_trade_hour`** (godzinny) |
+| Problem | Przyczyna | Rozwiązanie |
+|---------|-----------|-------------|
+| Bot nie wykonuje transakcji automatycznie | `pg_cron` i `pg_net` nie zainstalowane | Migracja SQL do instalacji + konfiguracji |
+| Profit zawsze = 0 | Brak logiki liczenia zysku/straty | Nowa logika śledzenia pozycji i P&L |
+| Statystyki niepoprawne | Brak agregacji kapitału i % skuteczności | Nowe pole `total_btc_held` + obliczenia |
+| Win rate = 0 | Każda transakcja jest osobna, brak par BUY→SELL | Logika parowania transakcji |
 
 ---
 
-### Nowy Wzór na Wolumen
+### Część 1: Automatyzacja przez pg_cron
 
-```
-minVolume = baseAmount × 1.1        (np. 6 × 1.1 = 6.6 USD)
-maxVolume = baseAmount × 2.0        (np. 6 × 2.0 = 12 USD)
-
-multiplier = 1.1 + (0.9 × distanceRatio)   // od 1.1x do 2.0x
-volume = baseAmount × multiplier
-volume = clamp(volume, minVolume, maxVolume)
-```
-
-| Odległość od MA | Ratio | Multiplier | Wolumen (base=6) |
-|-----------------|-------|------------|------------------|
-| 0% (przy MA) | 0.0 | 1.1x | 6.60 USD |
-| 50% drogi | 0.5 | 1.55x | 9.30 USD |
-| 100% (przy wstędze) | 1.0 | 2.0x | 12.00 USD |
-
----
-
-### Część 1: Migracja Bazy Danych
-
-Zmiana kolumny `last_trade_date` na `last_trade_hour`:
+Utworzę migrację SQL która:
+1. Zainstaluje rozszerzenia `pg_cron` i `pg_net`
+2. Skonfiguruje harmonogram godzinny dla bota
+3. Skonfiguruje sync cen co 5 minut
 
 ```sql
-ALTER TABLE public.bot_config 
-ADD COLUMN IF NOT EXISTS last_trade_hour TIMESTAMPTZ;
+-- Włącz rozszerzenia
+CREATE EXTENSION IF NOT EXISTS pg_cron WITH SCHEMA pg_catalog;
+CREATE EXTENSION IF NOT EXISTS pg_net WITH SCHEMA extensions;
 
--- Kopiuj istniejące dane (opcjonalnie)
-UPDATE public.bot_config 
-SET last_trade_hour = last_trade_date::timestamptz 
-WHERE last_trade_date IS NOT NULL;
+-- Cron job: sync cen co 5 minut
+SELECT cron.schedule(
+  'sync-bingx-prices-5min',
+  '*/5 * * * *',
+  $$
+  SELECT net.http_post(
+    url:='https://xnblpyfbdjepmbcyocif.supabase.co/functions/v1/sync-bingx-prices',
+    headers:='{"Content-Type": "application/json", "Authorization": "Bearer <ANON_KEY>"}'::jsonb,
+    body:='{}'::jsonb
+  );
+  $$
+);
+
+-- Cron job: bot simulation co godzinę o :02
+SELECT cron.schedule(
+  'run-bot-simulation-hourly',
+  '2 * * * *',
+  $$
+  SELECT net.http_post(
+    url:='https://xnblpyfbdjepmbcyocif.supabase.co/functions/v1/run-bot-simulation',
+    headers:='{"Content-Type": "application/json", "Authorization": "Bearer <ANON_KEY>"}'::jsonb,
+    body:='{}'::jsonb
+  );
+  $$
+);
 ```
 
 ---
 
-### Część 2: Aktualizacja `src/lib/bollinger.ts`
+### Część 2: Nowa Logika Śledzenia BTC i Zysków
 
-Nowy wzór z parametrami:
+Zmiana w Edge Function - śledzenie rzeczywistej pozycji BTC:
 
 ```typescript
-export const calculateHourlyVolume = (
-  bands: BollingerBands,
-  baseAmount: number = 6,
-  holdZonePercent: number = 10
-): DailyVolumeSignal => {
-  const { price, upper, middle, lower } = bands;
-  
-  // Min i max na podstawie kwoty bazowej
-  const minMultiplier = 1.1;
-  const maxMultiplier = 2.0;
-  const minVolume = baseAmount * minMultiplier;
-  const maxVolume = baseAmount * maxMultiplier;
-  
-  const upperBandWidth = upper - middle;
-  const lowerBandWidth = middle - lower;
-  
-  if (upperBandWidth <= 0 || lowerBandWidth <= 0) {
-    return { action: 'HOLD', volumeUsd: 0, distanceRatio: 0, multiplier: 1, reason: 'Invalid band width' };
-  }
-  
-  // Strefa HOLD: ±holdZonePercent% od MA
-  const holdZoneThreshold = holdZonePercent / 100;
-  const holdZoneUpper = middle + upperBandWidth * holdZoneThreshold;
-  const holdZoneLower = middle - lowerBandWidth * holdZoneThreshold;
-  
-  if (price >= holdZoneLower && price <= holdZoneUpper) {
-    return { action: 'HOLD', volumeUsd: 0, distanceRatio: 0, multiplier: 1, reason: 'Cena w strefie neutralnej' };
-  }
-  
-  // KUPNO - cena poniżej MA
-  if (price < middle) {
-    const distanceFromMA = middle - price;
-    const ratio = Math.min(1, distanceFromMA / lowerBandWidth);
-    // Multiplier od 1.1 do 2.0
-    const multiplier = minMultiplier + (maxMultiplier - minMultiplier) * ratio;
-    const volume = Math.min(maxVolume, Math.max(minVolume, baseAmount * multiplier));
-    
-    return {
-      action: 'BUY',
-      volumeUsd: Math.round(volume * 100) / 100,
-      distanceRatio: ratio,
-      multiplier: Math.round(multiplier * 100) / 100,
-      reason: `Kupno: ${(ratio * 100).toFixed(1)}% drogi do dolnej wstęgi`
-    };
-  }
-  
-  // SPRZEDAŻ - cena powyżej MA
-  const distanceFromMA = price - middle;
-  const ratio = Math.min(1, distanceFromMA / upperBandWidth);
-  const multiplier = minMultiplier + (maxMultiplier - minMultiplier) * ratio;
-  const volume = Math.min(maxVolume, Math.max(minVolume, baseAmount * multiplier));
-  
-  return {
-    action: 'SELL',
-    volumeUsd: Math.round(volume * 100) / 100,
-    distanceRatio: ratio,
-    multiplier: Math.round(multiplier * 100) / 100,
-    reason: `Sprzedaż: ${(ratio * 100).toFixed(1)}% drogi do górnej wstęgi`
-  };
-};
+// Przy KUPNIE:
+// - Dodaj BTC do held_btc
+// - Odejmij USD z balance
+// - Zapisz cenę zakupu
+
+// Przy SPRZEDAŻY:
+// - Sprawdź ile BTC mamy (held_btc)
+// - Jeśli mamy BTC, sprzedaj z zyskiem/stratą
+// - profit = (cena_obecna - avg_buy_price) × ilość_btc_sprzedanej
 ```
 
 ---
 
-### Część 3: Aktualizacja Edge Function
+### Część 3: Nowe Kolumny w Bazie Danych
 
-Zmiana z dziennego na godzinny limit:
+Dodanie kolumn do śledzenia pozycji:
 
-```typescript
-// Pobierz aktualną godzinę (zaokrągloną do pełnej godziny)
-const currentHour = new Date();
-currentHour.setMinutes(0, 0, 0);
-const currentHourISO = currentHour.toISOString();
+```sql
+ALTER TABLE public.bot_config ADD COLUMN IF NOT EXISTS 
+  total_btc_held NUMERIC(18, 8) DEFAULT 0;
 
-// Sprawdź czy już była transakcja w tej godzinie
-const lastTradeHour = config.last_trade_hour ? new Date(config.last_trade_hour) : null;
-if (lastTradeHour && lastTradeHour.getTime() === currentHour.getTime()) {
-  console.log(`[run-bot-simulation] User ${userId} already traded this hour`);
-  results.push({ userId, action: 'HOURLY_LIMIT_REACHED' });
-  continue;
-}
+ALTER TABLE public.bot_config ADD COLUMN IF NOT EXISTS 
+  avg_buy_price NUMERIC(18, 2) DEFAULT 0;
 
-// ... logika transakcji ...
+ALTER TABLE public.bot_config ADD COLUMN IF NOT EXISTS 
+  total_profit_usd NUMERIC(18, 2) DEFAULT 0;
 
-// Zaktualizuj ostatnią godzinę transakcji
-await supabase
-  .from('bot_config')
-  .update({ last_trade_hour: currentHourISO })
-  .eq('id', config.id);
+ALTER TABLE public.bot_config ADD COLUMN IF NOT EXISTS 
+  total_trades INTEGER DEFAULT 0;
+
+ALTER TABLE public.bot_config ADD COLUMN IF NOT EXISTS 
+  winning_trades INTEGER DEFAULT 0;
 ```
 
 ---
 
-### Część 4: Aktualizacja `usePriceHistory.ts`
+### Część 4: Nowa Logika Edge Function
 
-Zwiększenie zakresu do 168 świec (tydzień):
+```text
+CO GODZINĘ (automatycznie przez pg_cron):
 
-```typescript
-export const usePriceHistory = (symbol = 'BTC-USDT', interval = '1h', limit = 168) => {
-  // ... reszta bez zmian
-};
-```
+1. Pobierz aktualne ceny i oblicz Bollinger Bands
 
-W Dashboard.tsx:
-```typescript
-const { data: priceHistory = [], ... } = usePriceHistory('BTC-USDT', '1h', 168);
-```
+2. DLA KAŻDEGO AKTYWNEGO BOTA:
+   
+   a) Sprawdź czy już była transakcja w tej godzinie
+      → Jeśli tak, pomiń
 
----
+   b) Oblicz sygnał na podstawie pozycji ceny względem MA:
+      - Poniżej MA → BUY (volume 110%-200% × base)
+      - Powyżej MA → SELL (volume 110%-200% × base)
+      - W strefie ±10% od MA → HOLD
 
-### Część 5: Dashboard - Pole Kwoty Bazowej
+   c) JEŚLI KUPNO:
+      - Oblicz ilość BTC = volume_usd / cena
+      - Aktualizuj avg_buy_price (średnia ważona)
+      - Dodaj do total_btc_held
+      - Odejmij USD z balance
 
-Dodanie edytowalnego pola w Dashboard:
+   d) JEŚLI SPRZEDAŻ i mamy BTC:
+      - Oblicz ilość BTC do sprzedaży = min(held_btc, volume_usd / cena)
+      - profit = (cena - avg_buy_price) × ilość_btc
+      - Dodaj profit do trade record
+      - Odejmij z total_btc_held
+      - Dodaj USD do balance
+      - Aktualizuj statystyki (winning_trades jeśli profit > 0)
 
-```typescript
-// Nowa karta konfiguracji
-<div className="cyber-card rounded-xl p-6">
-  <h2>Konfiguracja Bota</h2>
-  
-  <div className="space-y-4">
-    <div>
-      <Label htmlFor="baseAmount">Kwota bazowa (USD)</Label>
-      <Input
-        id="baseAmount"
-        type="number"
-        min="1"
-        max="100"
-        step="0.5"
-        value={botConfig?.base_trade_usd || 6}
-        onChange={(e) => updateConfig.mutate({ 
-          base_trade_usd: parseFloat(e.target.value) 
-        })}
-      />
-      <p className="text-xs text-muted-foreground mt-1">
-        Min: {(botConfig?.base_trade_usd || 6) * 1.1} USD | 
-        Max: {(botConfig?.base_trade_usd || 6) * 2} USD
-      </p>
-    </div>
-  </div>
-</div>
+3. Zapisz transakcję i zaktualizuj statystyki
 ```
 
 ---
 
-### Część 6: Aktualizacja StrategyExplainer
+### Część 5: Formuła Wolumenu (weryfikacja)
 
-Nowy opis strategii:
+Obecna logika w kodzie jest POPRAWNA:
 
 ```typescript
-{
-  icon: Clock,
-  title: 'Interwał godzinny',
-  description: 'Bot analizuje cenę zamknięcia każdej świecy godzinowej i podejmuje decyzję o transakcji',
-},
-{
-  icon: Calculator,
-  title: 'Wzór na Wolumen',
-  description: 'Wolumen = kwota_bazowa × (1.1 + 0.9 × odległość), od base×1.1 do base×2.0',
-},
+// multiplier = 1.1 + (0.9 × ratio)
+// gdzie ratio = odległość_od_MA / szerokość_wstęgi
+
+// Przykłady dla base = 6 USD:
+// - Przy MA (ratio=0):    1.1 × 6 = 6.60 USD (110%)
+// - W połowie (ratio=0.5): 1.55 × 6 = 9.30 USD (155%)
+// - Przy wstędze (ratio=1): 2.0 × 6 = 12.00 USD (200%)
 ```
 
 ---
 
-### Część 7: Aktualizacja Hooka `useBotData.ts`
+### Część 6: Statystyki Skuteczności
 
-Dodanie nowego pola i refetchInterval:
+Dashboard będzie pokazywał:
 
 ```typescript
-export interface BotConfig {
-  // ... istniejące pola ...
-  last_trade_hour: string | null;  // Nowe pole
-}
+// Obliczanie z bot_config
+const winRate = config.total_trades > 0 
+  ? (config.winning_trades / config.total_trades) * 100 
+  : 0;
 
-export const useBotConfig = () => {
-  return useQuery({
-    // ... 
-    refetchInterval: 60000,  // Auto-refresh co minutę
-    staleTime: 30000,
-  });
-};
+const capitalGrowth = ((config.simulated_balance_usd + 
+  config.total_btc_held * currentPrice - 10000) / 10000) * 100;
 
-export const useBotTrades = () => {
-  return useQuery({
-    // ...
-    refetchInterval: 60000,  // Auto-refresh co minutę
-    staleTime: 30000,
-  });
-};
+// Wyświetlanie:
+// - Win Rate: 65.2%
+// - Kapitał: +12.5% ($11,250)
+// - BTC w portfelu: 0.00234 BTC
+// - Średnia cena zakupu: $85,432
 ```
 
 ---
 
-### Część 8: Struktura Plików
+### Część 7: Struktura Zmian
 
 | Plik | Akcja | Opis |
 |------|-------|------|
-| `supabase/migrations/xxx_hourly_trades.sql` | NOWY | Dodaj kolumnę `last_trade_hour` |
-| `src/lib/bollinger.ts` | EDYCJA | Nowy wzór `calculateHourlyVolume()` |
-| `supabase/functions/run-bot-simulation/index.ts` | EDYCJA | Limit godzinny + nowy wzór |
-| `src/hooks/usePriceHistory.ts` | EDYCJA | Domyślny limit 168 świec |
-| `src/hooks/useBotData.ts` | EDYCJA | Nowe pole + refetchInterval |
-| `src/pages/Dashboard.tsx` | EDYCJA | Pole input dla kwoty bazowej |
-| `src/components/StrategyExplainer.tsx` | EDYCJA | Nowy opis strategii |
-
----
-
-### Weryfikacja Logiki Strategii
-
-**Obecna logika (poprawna):**
-- Cena < MA → KUPNO (proporcjonalnie do odległości od dolnej wstęgi)
-- Cena > MA → SPRZEDAŻ (proporcjonalnie do odległości od górnej wstęgi)
-- Cena w strefie ±10% od MA → HOLD
-
-**Nowy wzór wolumenu:**
-```
-Przykład dla base = 6 USD:
-
-Cena przy MA (ratio = 0.0):
-  multiplier = 1.1 + 0.9 × 0.0 = 1.1
-  volume = 6 × 1.1 = 6.6 USD ✓
-
-Cena w połowie drogi (ratio = 0.5):
-  multiplier = 1.1 + 0.9 × 0.5 = 1.55
-  volume = 6 × 1.55 = 9.3 USD ✓
-
-Cena przy wstędze (ratio = 1.0):
-  multiplier = 1.1 + 0.9 × 1.0 = 2.0
-  volume = 6 × 2.0 = 12.0 USD ✓
-```
+| `supabase/migrations/xxx_cron_automation.sql` | NOWY | pg_cron + pg_net + harmonogram |
+| `supabase/migrations/xxx_position_tracking.sql` | NOWY | Kolumny do śledzenia pozycji |
+| `supabase/functions/run-bot-simulation/index.ts` | EDYCJA | Logika BTC held + profit |
+| `src/hooks/useBotData.ts` | EDYCJA | Nowe pola w interfejsach |
+| `src/pages/Dashboard.tsx` | EDYCJA | Wyświetlanie nowych statystyk |
 
 ---
 
 ### Sekcja Techniczna
 
-**Dlaczego godzinny interwał:**
-- Bollinger Bands są obliczane z 20 świec 1h → 20 godzin historii
-- Bot będzie mógł reagować na zmiany rynku znacznie szybciej
-- Więcej możliwości do akumulacji/sprzedaży w ciągu dnia
-
-**Dane na wykresie:**
-- 168 świec = 7 dni × 24 godziny
-- Pełny tydzień danych do analizy wizualnej
-- BB z 20 okresów widoczne na całym zakresie
-
-**Harmonogram cron (do ręcznej konfiguracji):**
-```sql
--- Bot simulation co godzinę o :05
-SELECT cron.schedule(
-  'run-bot-simulation-hourly',
-  '5 * * * *',
-  $$ ... $$
-);
+**Średnia ważona cena zakupu:**
+```typescript
+// Przy każdym kupnie:
+const totalValue = (held_btc * avg_price) + (new_btc * current_price);
+const new_avg_price = totalValue / (held_btc + new_btc);
 ```
+
+**Obliczanie profitu przy sprzedaży:**
+```typescript
+const profit = (sell_price - avg_buy_price) * btc_amount;
+// profit > 0 → winning trade
+// profit < 0 → losing trade
+```
+
+**Harmonogram cron:**
+- `*/5 * * * *` - sync cen co 5 minut
+- `2 * * * *` - bot simulation o :02 każdej godziny
+
+---
+
+### WAŻNE: pg_cron wymaga ręcznej aktywacji
+
+Po zastosowaniu migracji, pg_cron powinien być automatycznie włączony.
+Jeśli nie, trzeba go włączyć ręcznie w Supabase Dashboard:
+- Database → Extensions → pg_cron → Enable
+- Database → Extensions → pg_net → Enable
 
