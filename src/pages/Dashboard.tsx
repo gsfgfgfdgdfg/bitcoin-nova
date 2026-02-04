@@ -122,9 +122,14 @@ const Dashboard = () => {
               <p className="font-display text-3xl font-bold text-foreground">
                 {formatUSD(stats.balance)}
               </p>
-              <p className="text-muted-foreground font-mono">
+              <p className="text-muted-foreground font-mono text-sm">
                 + {stats.totalBtcHeld.toFixed(6)} BTC
               </p>
+              {stats.avgBuyPrice > 0 && (
+                <p className="text-muted-foreground font-mono text-xs">
+                  Avg: ${stats.avgBuyPrice.toFixed(2)}
+                </p>
+              )}
             </div>
 
             {/* P&L Card */}
@@ -138,8 +143,8 @@ const Dashboard = () => {
               <p className={`font-display text-3xl font-bold ${stats.totalProfit >= 0 ? 'text-success' : 'text-destructive'}`}>
                 {stats.totalProfit >= 0 ? '+' : ''}{formatUSD(stats.totalProfit)}
               </p>
-              <p className="text-muted-foreground font-mono">
-                Win rate: {stats.winRate.toFixed(1)}%
+              <p className="text-muted-foreground font-mono text-sm">
+                Win rate: {stats.winRate.toFixed(1)}% ({stats.winningTrades}/{stats.totalTrades})
               </p>
             </div>
 
