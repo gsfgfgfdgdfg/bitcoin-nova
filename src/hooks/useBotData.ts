@@ -16,6 +16,11 @@ export interface BotConfig {
   hold_zone_percent: number;
   last_trade_date: string | null;
   last_trade_hour: string | null;
+  total_btc_held: number;
+  avg_buy_price: number;
+  total_profit_usd: number;
+  total_trades: number;
+  winning_trades: number;
   created_at: string;
   updated_at: string;
 }
@@ -56,7 +61,7 @@ export const useBotConfig = () => {
       return data as BotConfig | null;
     },
     enabled: !!user,
-    refetchInterval: 60000, // Auto-refresh every minute
+    refetchInterval: 60000,
     staleTime: 30000,
   });
 };
@@ -139,32 +144,30 @@ export const useBotTrades = () => {
       return data as BotTrade[];
     },
     enabled: !!user,
-    refetchInterval: 60000, // Auto-refresh every minute
+    refetchInterval: 60000,
     staleTime: 30000,
   });
 };
 
 export const useBotStats = () => {
-  const { data: trades } = useBotTrades();
   const { data: config } = useBotConfig();
 
-  const totalProfit = trades?.reduce((sum, trade) => {
-    return sum + (trade.profit_usd || 0);
-  }, 0) || 0;
-
-  const winningTrades = trades?.filter(t => (t.profit_usd || 0) > 0).length || 0;
-  const closedTrades = trades?.filter(t => t.status === 'closed').length || 0;
-  const winRate = closedTrades > 0 ? (winningTrades / closedTrades) * 100 : 0;
-
-  const openPositions = trades?.filter(t => t.status === 'open') || [];
-  const totalBtcHeld = openPositions.reduce((sum, t) => sum + Number(t.amount_btc), 0);
+  // Stats are now calculated from bot_config (server-side tracking)
+  const totalBtcHeld = config?.total_btc_held || 0;
+  const avgBuyPrice = config?.avg_buy_price || 0;
+  const totalProfit = config?.total_profit_usd || 0;
+  const totalTrades = config?.total_trades || 0;
+  const winningTrades = config?.winning_trades || 0;
+  const winRate = totalTrades > 0 ? (winningTrades / totalTrades) * 100 : 0;
+  const balance = config?.simulated_balance_usd || 10000;
 
   return {
     totalProfit,
     winRate,
-    closedTrades,
-    openPositions: openPositions.length,
+    totalTrades,
+    winningTrades,
     totalBtcHeld,
-    balance: config?.simulated_balance_usd || 10000,
+    avgBuyPrice,
+    balance,
   };
 };

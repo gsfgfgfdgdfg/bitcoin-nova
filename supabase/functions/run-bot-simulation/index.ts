@@ -5,7 +5,7 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
 
-// Bollinger Bands calculation functions (inline to avoid import issues in edge function)
+// Bollinger Bands calculation functions
 const calculateSMA = (prices: number[], period: number): number => {
   if (prices.length < period) return prices[prices.length - 1] || 0;
   const slice = prices.slice(-period);
@@ -41,7 +41,7 @@ const calculateBollingerBands = (prices: number[], period = 20, multiplier = 2):
   };
 };
 
-// Hourly volume calculation based on distance from MA with new min/max formula
+// Hourly volume calculation based on distance from MA (110% to 200%)
 interface HourlyVolumeSignal {
   action: 'BUY' | 'SELL' | 'HOLD';
   volumeUsd: number;
@@ -66,7 +66,6 @@ const calculateHourlyVolume = (
   const upperBandWidth = upper - middle;
   const lowerBandWidth = middle - lower;
   
-  // Guard against zero division
   if (upperBandWidth <= 0 || lowerBandWidth <= 0) {
     return {
       action: 'HOLD',
@@ -82,7 +81,6 @@ const calculateHourlyVolume = (
   const holdZoneUpper = middle + upperBandWidth * holdZoneThreshold;
   const holdZoneLower = middle - lowerBandWidth * holdZoneThreshold;
   
-  // Neutral zone - no action
   if (price >= holdZoneLower && price <= holdZoneUpper) {
     return {
       action: 'HOLD',
@@ -97,7 +95,6 @@ const calculateHourlyVolume = (
   if (price < middle) {
     const distanceFromMA = middle - price;
     const ratio = Math.min(1, distanceFromMA / lowerBandWidth);
-    // Multiplier from 1.1 to 2.0
     const multiplier = minMultiplier + (maxMultiplier - minMultiplier) * ratio;
     const volume = Math.min(maxVolume, Math.max(minVolume, baseAmount * multiplier));
     
@@ -126,27 +123,25 @@ const calculateHourlyVolume = (
 };
 
 Deno.serve(async (req) => {
-  // Handle CORS preflight
   if (req.method === "OPTIONS") {
     return new Response(null, { headers: corsHeaders });
   }
 
   try {
-    console.log("[run-bot-simulation] Starting hourly volume simulation...");
+    console.log("[run-bot-simulation] Starting hourly bot simulation...");
 
-    // Initialize Supabase client with service role
     const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
     const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
     const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
-    // Get current hour (rounded to full hour) for hourly limit check
+    // Get current hour for hourly limit check
     const currentHour = new Date();
     currentHour.setMinutes(0, 0, 0);
     currentHour.setMilliseconds(0);
     const currentHourISO = currentHour.toISOString();
     console.log("[run-bot-simulation] Current hour:", currentHourISO);
 
-    // Get all active bot configs (bots that are running)
+    // Get all active bot configs
     const { data: activeConfigs, error: configError } = await supabase
       .from("bot_config")
       .select("*")
@@ -167,7 +162,7 @@ Deno.serve(async (req) => {
 
     console.log(`[run-bot-simulation] Found ${activeConfigs.length} active bot(s)`);
 
-    // Get latest price history (last 25 candles for 20-period BB calculation)
+    // Get latest price history (last 25 candles for 20-period BB)
     const { data: priceHistory, error: priceError } = await supabase
       .from("price_history")
       .select("close_price, candle_time")
@@ -184,76 +179,72 @@ Deno.serve(async (req) => {
     if (!priceHistory || priceHistory.length < 20) {
       console.log(`[run-bot-simulation] Not enough price data: ${priceHistory?.length || 0} candles`);
       return new Response(
-        JSON.stringify({ 
-          error: "Insufficient price data for Bollinger calculation", 
-          dataPoints: priceHistory?.length || 0 
-        }),
+        JSON.stringify({ error: "Insufficient price data", dataPoints: priceHistory?.length || 0 }),
         { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }
 
-    // Reverse to chronological order for BB calculation
+    // Chronological order for BB calculation
     const prices = priceHistory.reverse().map(p => Number(p.close_price));
     const bands = calculateBollingerBands(prices, 20, 2);
     const currentPrice = bands.price;
 
-    console.log(`[run-bot-simulation] Bollinger Bands - Upper: $${bands.upper.toFixed(2)}, Middle: $${bands.middle.toFixed(2)}, Lower: $${bands.lower.toFixed(2)}, Price: $${currentPrice.toFixed(2)}`);
+    console.log(`[run-bot-simulation] BB - Upper: $${bands.upper.toFixed(2)}, MA: $${bands.middle.toFixed(2)}, Lower: $${bands.lower.toFixed(2)}, Price: $${currentPrice.toFixed(2)}`);
 
     const results: { userId: string; action: string; details?: Record<string, unknown> }[] = [];
 
-    // Process each active bot with HOURLY VOLUME STRATEGY
+    // Process each active bot
     for (const config of activeConfigs) {
       const userId = config.user_id;
       console.log(`[run-bot-simulation] Processing bot for user: ${userId}`);
 
-      // Check if already traded this hour
+      // Check hourly limit
       const lastTradeHour = config.last_trade_hour ? new Date(config.last_trade_hour) : null;
       if (lastTradeHour) {
         lastTradeHour.setMinutes(0, 0, 0);
         lastTradeHour.setMilliseconds(0);
         
         if (lastTradeHour.getTime() === currentHour.getTime()) {
-          console.log(`[run-bot-simulation] User ${userId} already traded this hour, skipping`);
-          results.push({
-            userId,
-            action: "HOURLY_LIMIT_REACHED",
-            details: { lastTradeHour: config.last_trade_hour, currentHour: currentHourISO }
-          });
+          console.log(`[run-bot-simulation] User ${userId} already traded this hour`);
+          results.push({ userId, action: "HOURLY_LIMIT_REACHED" });
           continue;
         }
       }
 
-      // Calculate hourly volume signal based on distance from MA
+      // Calculate signal
       const baseAmount = Number(config.base_trade_usd) || 6;
       const holdZonePercent = Number(config.hold_zone_percent) || 10;
-      
       const signal = calculateHourlyVolume(bands, baseAmount, holdZonePercent);
 
-      console.log(`[run-bot-simulation] Signal for user ${userId}:`, JSON.stringify(signal));
+      console.log(`[run-bot-simulation] Signal:`, JSON.stringify(signal));
 
       if (signal.action === 'HOLD') {
-        results.push({
-          userId,
-          action: "HOLD",
-          details: { reason: signal.reason, bands }
-        });
+        results.push({ userId, action: "HOLD", details: { reason: signal.reason } });
         continue;
       }
 
+      // Get current position data
       const currentBalance = Number(config.simulated_balance_usd) || 10000;
-      const amountBtc = signal.volumeUsd / currentPrice;
+      const totalBtcHeld = Number(config.total_btc_held) || 0;
+      const avgBuyPrice = Number(config.avg_buy_price) || 0;
+      const totalProfitUsd = Number(config.total_profit_usd) || 0;
+      const totalTrades = Number(config.total_trades) || 0;
+      const winningTrades = Number(config.winning_trades) || 0;
 
       if (signal.action === 'BUY') {
-        // Check if user has enough balance
+        // Check balance
         if (currentBalance < signal.volumeUsd) {
-          console.log(`[run-bot-simulation] User ${userId} insufficient balance: ${currentBalance} < ${signal.volumeUsd}`);
-          results.push({
-            userId,
-            action: "INSUFFICIENT_BALANCE",
-            details: { balance: currentBalance, required: signal.volumeUsd }
-          });
+          console.log(`[run-bot-simulation] Insufficient balance: ${currentBalance} < ${signal.volumeUsd}`);
+          results.push({ userId, action: "INSUFFICIENT_BALANCE" });
           continue;
         }
+
+        const btcBought = signal.volumeUsd / currentPrice;
+        
+        // Calculate new weighted average buy price
+        const totalValue = (totalBtcHeld * avgBuyPrice) + (btcBought * currentPrice);
+        const newTotalBtc = totalBtcHeld + btcBought;
+        const newAvgBuyPrice = newTotalBtc > 0 ? totalValue / newTotalBtc : currentPrice;
 
         // Create BUY trade
         const { error: tradeError } = await supabase
@@ -261,85 +252,119 @@ Deno.serve(async (req) => {
           .insert({
             user_id: userId,
             type: "BUY",
-            amount_btc: amountBtc,
+            amount_btc: btcBought,
             price_usd: currentPrice,
             volume_usd: signal.volumeUsd,
-            status: "closed", // Hourly trades are instant/closed
+            status: "open",
             profit_usd: 0,
-            closed_at: new Date().toISOString(),
           });
 
         if (tradeError) {
-          console.error(`[run-bot-simulation] Trade insert error:`, tradeError);
+          console.error(`[run-bot-simulation] Trade error:`, tradeError);
           continue;
         }
 
-        // Update balance (subtract USD spent) and mark this hour as traded
+        // Update config with new position
         const newBalance = currentBalance - signal.volumeUsd;
         await supabase
           .from("bot_config")
           .update({ 
             simulated_balance_usd: newBalance,
+            total_btc_held: newTotalBtc,
+            avg_buy_price: newAvgBuyPrice,
+            total_trades: totalTrades + 1,
             last_trade_hour: currentHourISO 
           })
           .eq("id", config.id);
 
+        console.log(`[run-bot-simulation] BUY executed: ${btcBought.toFixed(8)} BTC @ $${currentPrice.toFixed(2)}`);
         results.push({
           userId,
           action: "BUY",
           details: {
             volumeUsd: signal.volumeUsd,
-            amountBtc,
+            btcBought,
             price: currentPrice,
             multiplier: signal.multiplier,
-            distanceRatio: signal.distanceRatio,
             newBalance,
-            reason: signal.reason
+            totalBtcHeld: newTotalBtc,
+            avgBuyPrice: newAvgBuyPrice
           }
         });
       }
 
       if (signal.action === 'SELL') {
-        // Create SELL trade (in simulation, we add USD to balance)
+        // Check if we have BTC to sell
+        if (totalBtcHeld <= 0) {
+          console.log(`[run-bot-simulation] No BTC to sell`);
+          results.push({ userId, action: "NO_BTC_TO_SELL" });
+          continue;
+        }
+
+        // Calculate how much BTC to sell (based on volume, but max what we have)
+        const btcToSellByVolume = signal.volumeUsd / currentPrice;
+        const btcToSell = Math.min(totalBtcHeld, btcToSellByVolume);
+        const actualVolumeUsd = btcToSell * currentPrice;
+
+        // Calculate profit for this trade
+        const profit = (currentPrice - avgBuyPrice) * btcToSell;
+        const isWinningTrade = profit > 0;
+
+        // Create SELL trade
         const { error: tradeError } = await supabase
           .from("bot_trades")
           .insert({
             user_id: userId,
             type: "SELL",
-            amount_btc: amountBtc,
+            amount_btc: btcToSell,
             price_usd: currentPrice,
-            volume_usd: signal.volumeUsd,
+            volume_usd: actualVolumeUsd,
             status: "closed",
-            profit_usd: 0,
+            profit_usd: profit,
             closed_at: new Date().toISOString(),
           });
 
         if (tradeError) {
-          console.error(`[run-bot-simulation] Trade insert error:`, tradeError);
+          console.error(`[run-bot-simulation] Trade error:`, tradeError);
           continue;
         }
 
-        // Update balance (add USD received) and mark this hour as traded
-        const newBalance = currentBalance + signal.volumeUsd;
+        // Update config
+        const newBalance = currentBalance + actualVolumeUsd;
+        const newTotalBtc = totalBtcHeld - btcToSell;
+        const newTotalProfit = totalProfitUsd + profit;
+        const newWinningTrades = isWinningTrade ? winningTrades + 1 : winningTrades;
+
+        // Reset avg_buy_price if no BTC left
+        const newAvgBuyPrice = newTotalBtc > 0 ? avgBuyPrice : 0;
+
         await supabase
           .from("bot_config")
           .update({ 
             simulated_balance_usd: newBalance,
+            total_btc_held: newTotalBtc,
+            avg_buy_price: newAvgBuyPrice,
+            total_profit_usd: newTotalProfit,
+            total_trades: totalTrades + 1,
+            winning_trades: newWinningTrades,
             last_trade_hour: currentHourISO 
           })
           .eq("id", config.id);
 
+        console.log(`[run-bot-simulation] SELL executed: ${btcToSell.toFixed(8)} BTC @ $${currentPrice.toFixed(2)}, profit: $${profit.toFixed(2)}`);
         results.push({
           userId,
           action: "SELL",
           details: {
-            volumeUsd: signal.volumeUsd,
-            amountBtc,
+            volumeUsd: actualVolumeUsd,
+            btcSold: btcToSell,
             price: currentPrice,
             multiplier: signal.multiplier,
-            distanceRatio: signal.distanceRatio,
+            profit,
+            isWinningTrade,
             newBalance,
-            reason: signal.reason
+            totalBtcHeld: newTotalBtc,
+            totalProfit: newTotalProfit
           }
         });
       }
@@ -367,10 +392,7 @@ Deno.serve(async (req) => {
     
     return new Response(
       JSON.stringify({ error: errorMessage, timestamp: new Date().toISOString() }),
-      {
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-        status: 500,
-      }
+      { headers: { ...corsHeaders, "Content-Type": "application/json" }, status: 500 }
     );
   }
 });

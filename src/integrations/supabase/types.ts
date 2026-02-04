@@ -58,6 +58,7 @@ export type Database = {
       }
       bot_config: {
         Row: {
+          avg_buy_price: number | null
           base_trade_usd: number | null
           created_at: string | null
           exchange: string | null
@@ -70,11 +71,16 @@ export type Database = {
           simulated_balance_usd: number | null
           stop_loss_percent: number | null
           strategy: string | null
+          total_btc_held: number | null
+          total_profit_usd: number | null
+          total_trades: number | null
           trade_amount_percent: number | null
           updated_at: string | null
           user_id: string
+          winning_trades: number | null
         }
         Insert: {
+          avg_buy_price?: number | null
           base_trade_usd?: number | null
           created_at?: string | null
           exchange?: string | null
@@ -87,11 +93,16 @@ export type Database = {
           simulated_balance_usd?: number | null
           stop_loss_percent?: number | null
           strategy?: string | null
+          total_btc_held?: number | null
+          total_profit_usd?: number | null
+          total_trades?: number | null
           trade_amount_percent?: number | null
           updated_at?: string | null
           user_id: string
+          winning_trades?: number | null
         }
         Update: {
+          avg_buy_price?: number | null
           base_trade_usd?: number | null
           created_at?: string | null
           exchange?: string | null
@@ -104,9 +115,13 @@ export type Database = {
           simulated_balance_usd?: number | null
           stop_loss_percent?: number | null
           strategy?: string | null
+          total_btc_held?: number | null
+          total_profit_usd?: number | null
+          total_trades?: number | null
           trade_amount_percent?: number | null
           updated_at?: string | null
           user_id?: string
+          winning_trades?: number | null
         }
         Relationships: []
       }
