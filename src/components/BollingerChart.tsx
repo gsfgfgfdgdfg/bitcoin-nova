@@ -7,11 +7,21 @@ interface BollingerChartProps {
   currentBands?: BollingerBands;
 }
 
+const formatDateTime = (timestamp: number): string => {
+  const date = new Date(timestamp);
+  return date.toLocaleDateString('pl-PL', {
+    day: '2-digit',
+    month: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit'
+  });
+};
+
 const BollingerChart = ({ priceHistory, currentBands }: BollingerChartProps) => {
   const chartData = useMemo(() => {
     if (priceHistory.length < 20) {
       return priceHistory.map((p, i) => ({
-        time: new Date(p.timestamp).toLocaleTimeString(),
+        time: formatDateTime(p.timestamp),
         price: p.price,
         upper: p.price * 1.02,
         middle: p.price,
@@ -24,7 +34,7 @@ const BollingerChart = ({ priceHistory, currentBands }: BollingerChartProps) => 
       const bands = calculateBollingerBands(prices, 20, 2);
       
       return {
-        time: new Date(point.timestamp).toLocaleTimeString(),
+        time: formatDateTime(point.timestamp),
         price: point.price,
         upper: bands.upper,
         middle: bands.middle,
@@ -57,8 +67,9 @@ const BollingerChart = ({ priceHistory, currentBands }: BollingerChartProps) => 
           <XAxis 
             dataKey="time" 
             stroke="hsl(var(--muted-foreground))" 
-            fontSize={10}
+            fontSize={9}
             tickLine={false}
+            interval={23}
           />
           
           <YAxis 
