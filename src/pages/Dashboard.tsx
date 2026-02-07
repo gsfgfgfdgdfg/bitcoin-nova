@@ -6,20 +6,23 @@ import { useBotConfig, useBotTrades, useBotStats, useCreateBotConfig, useUpdateB
 import { usePriceHistory } from '@/hooks/usePriceHistory';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
-import { Bitcoin, TrendingUp, Bot, Play, Square, Clock, Loader2, Sparkles, RefreshCw, Settings } from 'lucide-react';
+import { Bitcoin, TrendingUp, Bot, Play, Square, Clock, Loader2, Sparkles, RefreshCw, Settings, Zap } from 'lucide-react';
 import BollingerChart from '@/components/BollingerChart';
 import TradeHistory from '@/components/TradeHistory';
 import StrategyExplainer from '@/components/StrategyExplainer';
 import { formatUSD } from '@/lib/bollinger';
 import { supabase } from '@/integrations/supabase/client';
 import { useQueryClient } from '@tanstack/react-query';
+import { useToast } from '@/hooks/use-toast';
+import { formatDistanceToNow } from 'date-fns';
+import { pl } from 'date-fns/locale';
 
 const Dashboard = () => {
   const { t, language } = useLanguage();
   const { user, loading: authLoading } = useAuth();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
+  const { toast } = useToast();
 
   const { data: botConfig, isLoading: configLoading } = useBotConfig();
   const { data: trades, isLoading: tradesLoading } = useBotTrades();
@@ -27,8 +30,9 @@ const Dashboard = () => {
   const createConfig = useCreateBotConfig();
   const updateConfig = useUpdateBotConfig();
 
-  // State for base amount input
+  // State for base amount input and bot testing
   const [baseAmountInput, setBaseAmountInput] = useState<string>('6');
+  const [isTestingBot, setIsTestingBot] = useState(false);
 
   // Sync base amount input with config
   useEffect(() => {
@@ -46,19 +50,54 @@ const Dashboard = () => {
     }
   }, [user, authLoading, navigate]);
 
-  // Sync prices on mount
+  // Force refresh prices on mount to ensure chart shows current data
   useEffect(() => {
-    const syncPrices = async () => {
+    const forceRefresh = async () => {
       try {
         await supabase.functions.invoke('sync-bingx-prices');
         queryClient.invalidateQueries({ queryKey: ['price-history'] });
         queryClient.invalidateQueries({ queryKey: ['current-price'] });
+        refetchPrices();
       } catch (error) {
         console.error('Error syncing prices:', error);
       }
     };
-    syncPrices();
+    forceRefresh();
   }, [queryClient]);
+
+  // Test bot handler
+  const handleTestBot = async () => {
+    setIsTestingBot(true);
+    try {
+      const { data, error } = await supabase.functions.invoke('run-bot-simulation');
+      if (error) throw error;
+      
+      const result = data?.results?.[0];
+      const action = result?.action || 'NO_ACTION';
+      const details = result?.details;
+      
+      // Refresh data
+      queryClient.invalidateQueries({ queryKey: ['bot-trades'] });
+      queryClient.invalidateQueries({ queryKey: ['bot-config'] });
+      queryClient.invalidateQueries({ queryKey: ['price-history'] });
+      
+      // Toast notification
+      toast({
+        title: `Bot: ${action}`,
+        description: details 
+          ? `${formatUSD(details.volume)} @ $${details.price?.toLocaleString() || 'N/A'}`
+          : 'Test zakończony',
+      });
+    } catch (error: any) {
+      toast({
+        title: 'Błąd testu bota',
+        description: error.message,
+        variant: 'destructive',
+      });
+    } finally {
+      setIsTestingBot(false);
+    }
+  };
 
   useEffect(() => {
     // Create default config for new users
@@ -159,21 +198,44 @@ const Dashboard = () => {
               <p className={`font-display text-2xl font-bold ${isRunning ? 'text-success' : 'text-muted-foreground'}`}>
                 {isRunning ? 'RUNNING' : 'STOPPED'}
               </p>
-              <Button
-                onClick={handleToggleBot}
-                disabled={updateConfig.isPending}
-                className={`mt-2 w-full ${isRunning 
-                  ? 'bg-destructive hover:bg-destructive/90' 
-                  : 'bg-gradient-to-r from-bitcoin-orange to-bitcoin-gold'}`}
-              >
-                {updateConfig.isPending ? (
-                  <Loader2 className="w-4 h-4 animate-spin" />
-                ) : isRunning ? (
-                  <><Square className="w-4 h-4 mr-2" />{t.dashboard.stopBot}</>
+              <p className="text-xs text-muted-foreground mt-1">
+                {botConfig?.last_trade_hour ? (
+                  <>Ostatnia akcja: {formatDistanceToNow(new Date(botConfig.last_trade_hour), { addSuffix: true, locale: pl })}</>
                 ) : (
-                  <><Play className="w-4 h-4 mr-2" />{t.dashboard.startBot}</>
+                  'Brak transakcji'
                 )}
-              </Button>
+              </p>
+              <div className="flex gap-2 mt-3">
+                <Button
+                  onClick={handleToggleBot}
+                  disabled={updateConfig.isPending}
+                  size="sm"
+                  className={`flex-1 ${isRunning 
+                    ? 'bg-destructive hover:bg-destructive/90' 
+                    : 'bg-gradient-to-r from-bitcoin-orange to-bitcoin-gold'}`}
+                >
+                  {updateConfig.isPending ? (
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                  ) : isRunning ? (
+                    <><Square className="w-4 h-4 mr-2" />{t.dashboard.stopBot}</>
+                  ) : (
+                    <><Play className="w-4 h-4 mr-2" />{t.dashboard.startBot}</>
+                  )}
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={handleTestBot}
+                  disabled={isTestingBot}
+                  title="Ręczny test bota"
+                >
+                  {isTestingBot ? (
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                  ) : (
+                    <Zap className="w-4 h-4" />
+                  )}
+                </Button>
+              </div>
             </div>
 
             {/* Bot Configuration Card */}
