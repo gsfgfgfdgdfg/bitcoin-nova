@@ -5,6 +5,34 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
 
+// Pushover notification function
+const sendPushover = async (title: string, message: string) => {
+  const pushoverToken = Deno.env.get("PUSHOVER_APP_TOKEN");
+  const pushoverUser = Deno.env.get("PUSHOVER_USER_KEY");
+  
+  if (!pushoverToken || !pushoverUser) {
+    console.log("[Pushover] Secrets not configured");
+    return;
+  }
+  
+  try {
+    const response = await fetch("https://api.pushover.net/1/messages.json", {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({
+        token: pushoverToken,
+        user: pushoverUser,
+        title: title,
+        message: message,
+        sound: "cashregister",
+      }),
+    });
+    console.log("[Pushover] Response:", response.status);
+  } catch (e) {
+    console.error("[Pushover] Error:", e);
+  }
+};
+
 // Bollinger Bands calculation functions
 const calculateSMA = (prices: number[], period: number): number => {
   if (prices.length < period) return prices[prices.length - 1] || 0;
@@ -41,7 +69,7 @@ const calculateBollingerBands = (prices: number[], period = 20, multiplier = 2):
   };
 };
 
-// Hourly volume calculation based on distance from MA (110% to 200%)
+// Hourly volume calculation based on distance from MA (100% to 200%)
 interface HourlyVolumeSignal {
   action: 'BUY' | 'SELL' | 'HOLD';
   volumeUsd: number;
@@ -57,11 +85,9 @@ const calculateHourlyVolume = (
 ): HourlyVolumeSignal => {
   const { price, upper, middle, lower } = bands;
   
-  // Min and max based on base amount (1.1x to 2.0x)
-  const minMultiplier = 1.1;
-  const maxMultiplier = 2.0;
-  const minVolume = baseAmount * minMultiplier;
-  const maxVolume = baseAmount * maxMultiplier;
+  // Volume range: 100% to 200% of base amount
+  const minVolume = baseAmount * 1.0;
+  const maxVolume = baseAmount * 2.0;
   
   const upperBandWidth = upper - middle;
   const lowerBandWidth = middle - lower;
@@ -95,7 +121,8 @@ const calculateHourlyVolume = (
   if (price < middle) {
     const distanceFromMA = middle - price;
     const ratio = Math.min(1, distanceFromMA / lowerBandWidth);
-    const multiplier = minMultiplier + (maxMultiplier - minMultiplier) * ratio;
+    // CORRECTED: multiplier = 1 + ratio (100% to 200%)
+    const multiplier = 1 + ratio;
     const volume = Math.min(maxVolume, Math.max(minVolume, baseAmount * multiplier));
     
     return {
@@ -110,7 +137,8 @@ const calculateHourlyVolume = (
   // SELL - price above MA
   const distanceFromMA = price - middle;
   const ratio = Math.min(1, distanceFromMA / upperBandWidth);
-  const multiplier = minMultiplier + (maxMultiplier - minMultiplier) * ratio;
+  // CORRECTED: multiplier = 1 + ratio (100% to 200%)
+  const multiplier = 1 + ratio;
   const volume = Math.min(maxVolume, Math.max(minVolume, baseAmount * multiplier));
   
   return {
@@ -218,6 +246,20 @@ Deno.serve(async (req) => {
 
       console.log(`[run-bot-simulation] Signal:`, JSON.stringify(signal));
 
+      // Always log to bot_actions table
+      await supabase.from("bot_actions").insert({
+        user_id: userId,
+        action: signal.action,
+        reason: signal.reason,
+        price_usd: currentPrice,
+        bollinger_upper: bands.upper,
+        bollinger_middle: bands.middle,
+        bollinger_lower: bands.lower,
+        distance_ratio: signal.distanceRatio,
+        multiplier: signal.multiplier,
+        volume_usd: signal.volumeUsd,
+      });
+
       if (signal.action === 'HOLD') {
         results.push({ userId, action: "HOLD", details: { reason: signal.reason } });
         continue;
@@ -235,6 +277,21 @@ Deno.serve(async (req) => {
         // Check balance
         if (currentBalance < signal.volumeUsd) {
           console.log(`[run-bot-simulation] Insufficient balance: ${currentBalance} < ${signal.volumeUsd}`);
+          
+          // Log insufficient balance action
+          await supabase.from("bot_actions").insert({
+            user_id: userId,
+            action: "INSUFFICIENT_BALANCE",
+            reason: `Balance ${currentBalance.toFixed(2)} < required ${signal.volumeUsd.toFixed(2)}`,
+            price_usd: currentPrice,
+            bollinger_upper: bands.upper,
+            bollinger_middle: bands.middle,
+            bollinger_lower: bands.lower,
+            distance_ratio: signal.distanceRatio,
+            multiplier: signal.multiplier,
+            volume_usd: signal.volumeUsd,
+          });
+          
           results.push({ userId, action: "INSUFFICIENT_BALANCE" });
           continue;
         }
@@ -246,7 +303,7 @@ Deno.serve(async (req) => {
         const newTotalBtc = totalBtcHeld + btcBought;
         const newAvgBuyPrice = newTotalBtc > 0 ? totalValue / newTotalBtc : currentPrice;
 
-        // Create BUY trade
+        // Create BUY trade with Bollinger details
         const { error: tradeError } = await supabase
           .from("bot_trades")
           .insert({
@@ -255,6 +312,11 @@ Deno.serve(async (req) => {
             amount_btc: btcBought,
             price_usd: currentPrice,
             volume_usd: signal.volumeUsd,
+            bollinger_upper: bands.upper,
+            bollinger_middle: bands.middle,
+            bollinger_lower: bands.lower,
+            distance_ratio: signal.distanceRatio,
+            multiplier: signal.multiplier,
             status: "open",
             profit_usd: 0,
           });
@@ -278,6 +340,15 @@ Deno.serve(async (req) => {
           .eq("id", config.id);
 
         console.log(`[run-bot-simulation] BUY executed: ${btcBought.toFixed(8)} BTC @ $${currentPrice.toFixed(2)}`);
+        
+        // Send Pushover notification
+        await sendPushover(
+          "🟢 BTC BUY",
+          `Kupiono ${btcBought.toFixed(6)} BTC @ $${currentPrice.toLocaleString()}
+Vol: $${signal.volumeUsd.toFixed(2)} (${signal.multiplier}x)
+MA: $${bands.middle.toFixed(0)} | Ratio: ${(signal.distanceRatio * 100).toFixed(1)}%`
+        );
+        
         results.push({
           userId,
           action: "BUY",
@@ -286,6 +357,10 @@ Deno.serve(async (req) => {
             btcBought,
             price: currentPrice,
             multiplier: signal.multiplier,
+            distanceRatio: signal.distanceRatio,
+            bollingerMiddle: bands.middle,
+            bollingerUpper: bands.upper,
+            bollingerLower: bands.lower,
             newBalance,
             totalBtcHeld: newTotalBtc,
             avgBuyPrice: newAvgBuyPrice
@@ -297,6 +372,21 @@ Deno.serve(async (req) => {
         // Check if we have BTC to sell
         if (totalBtcHeld <= 0) {
           console.log(`[run-bot-simulation] No BTC to sell`);
+          
+          // Log no BTC action
+          await supabase.from("bot_actions").insert({
+            user_id: userId,
+            action: "NO_BTC_TO_SELL",
+            reason: "No BTC holdings to sell",
+            price_usd: currentPrice,
+            bollinger_upper: bands.upper,
+            bollinger_middle: bands.middle,
+            bollinger_lower: bands.lower,
+            distance_ratio: signal.distanceRatio,
+            multiplier: signal.multiplier,
+            volume_usd: signal.volumeUsd,
+          });
+          
           results.push({ userId, action: "NO_BTC_TO_SELL" });
           continue;
         }
@@ -310,7 +400,7 @@ Deno.serve(async (req) => {
         const profit = (currentPrice - avgBuyPrice) * btcToSell;
         const isWinningTrade = profit > 0;
 
-        // Create SELL trade
+        // Create SELL trade with Bollinger details
         const { error: tradeError } = await supabase
           .from("bot_trades")
           .insert({
@@ -319,6 +409,11 @@ Deno.serve(async (req) => {
             amount_btc: btcToSell,
             price_usd: currentPrice,
             volume_usd: actualVolumeUsd,
+            bollinger_upper: bands.upper,
+            bollinger_middle: bands.middle,
+            bollinger_lower: bands.lower,
+            distance_ratio: signal.distanceRatio,
+            multiplier: signal.multiplier,
             status: "closed",
             profit_usd: profit,
             closed_at: new Date().toISOString(),
@@ -352,6 +447,15 @@ Deno.serve(async (req) => {
           .eq("id", config.id);
 
         console.log(`[run-bot-simulation] SELL executed: ${btcToSell.toFixed(8)} BTC @ $${currentPrice.toFixed(2)}, profit: $${profit.toFixed(2)}`);
+        
+        // Send Pushover notification
+        await sendPushover(
+          profit > 0 ? `🟢 BTC SELL +$${profit.toFixed(2)}` : `🔴 BTC SELL -$${Math.abs(profit).toFixed(2)}`,
+          `Sprzedano ${btcToSell.toFixed(6)} BTC @ $${currentPrice.toLocaleString()}
+Zysk: ${profit >= 0 ? '+' : ''}$${profit.toFixed(2)}
+MA: $${bands.middle.toFixed(0)} | Ratio: ${(signal.distanceRatio * 100).toFixed(1)}%`
+        );
+        
         results.push({
           userId,
           action: "SELL",
@@ -360,6 +464,10 @@ Deno.serve(async (req) => {
             btcSold: btcToSell,
             price: currentPrice,
             multiplier: signal.multiplier,
+            distanceRatio: signal.distanceRatio,
+            bollingerMiddle: bands.middle,
+            bollingerUpper: bands.upper,
+            bollingerLower: bands.lower,
             profit,
             isWinningTrade,
             newBalance,

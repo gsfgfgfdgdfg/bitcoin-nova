@@ -133,6 +133,7 @@ export interface DailyVolumeSignal {
 }
 
 // NEW: Hourly volume calculation with dynamic min/max based on base amount
+// CORRECTED FORMULA: multiplier = 1 + ratio (100% to 200%)
 export const calculateHourlyVolume = (
   bands: BollingerBands,
   baseAmount: number = 6,
@@ -140,11 +141,9 @@ export const calculateHourlyVolume = (
 ): DailyVolumeSignal => {
   const { price, upper, middle, lower } = bands;
   
-  // Min and max based on base amount
-  const minMultiplier = 1.1;
-  const maxMultiplier = 2.0;
-  const minVolume = baseAmount * minMultiplier;
-  const maxVolume = baseAmount * maxMultiplier;
+  // Volume range: 100% to 200% of base amount
+  const minVolume = baseAmount * 1.0;
+  const maxVolume = baseAmount * 2.0;
   
   const upperBandWidth = upper - middle;
   const lowerBandWidth = middle - lower;
@@ -180,8 +179,8 @@ export const calculateHourlyVolume = (
   if (price < middle) {
     const distanceFromMA = middle - price;
     const ratio = Math.min(1, distanceFromMA / lowerBandWidth);
-    // Multiplier from 1.1 to 2.0
-    const multiplier = minMultiplier + (maxMultiplier - minMultiplier) * ratio;
+    // CORRECTED: multiplier = 1 + ratio (100% to 200%)
+    const multiplier = 1 + ratio;
     const volume = Math.min(maxVolume, Math.max(minVolume, baseAmount * multiplier));
     
     return {
@@ -196,7 +195,8 @@ export const calculateHourlyVolume = (
   // SELL - price above MA
   const distanceFromMA = price - middle;
   const ratio = Math.min(1, distanceFromMA / upperBandWidth);
-  const multiplier = minMultiplier + (maxMultiplier - minMultiplier) * ratio;
+  // CORRECTED: multiplier = 1 + ratio (100% to 200%)
+  const multiplier = 1 + ratio;
   const volume = Math.min(maxVolume, Math.max(minVolume, baseAmount * multiplier));
   
   return {

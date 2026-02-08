@@ -21,6 +21,7 @@ export interface BotConfig {
   total_profit_usd: number;
   total_trades: number;
   winning_trades: number;
+  symbol: string;
   created_at: string;
   updated_at: string;
 }
@@ -36,8 +37,28 @@ export interface BotTrade {
   take_profit_price: number | null;
   status: 'open' | 'closed' | 'stopped';
   profit_usd: number | null;
+  bollinger_upper: number | null;
+  bollinger_middle: number | null;
+  bollinger_lower: number | null;
+  distance_ratio: number | null;
+  multiplier: number | null;
   created_at: string;
   closed_at: string | null;
+}
+
+export interface BotAction {
+  id: string;
+  user_id: string;
+  action: string;
+  reason: string | null;
+  price_usd: number | null;
+  bollinger_upper: number | null;
+  bollinger_middle: number | null;
+  bollinger_lower: number | null;
+  distance_ratio: number | null;
+  multiplier: number | null;
+  volume_usd: number | null;
+  created_at: string;
 }
 
 export const useBotConfig = () => {
@@ -142,6 +163,33 @@ export const useBotTrades = () => {
       }
 
       return data as BotTrade[];
+    },
+    enabled: !!user,
+    refetchInterval: 60000,
+    staleTime: 30000,
+  });
+};
+
+export const useBotActions = () => {
+  const { user } = useAuth();
+
+  return useQuery({
+    queryKey: ['bot-actions', user?.id],
+    queryFn: async () => {
+      if (!user) return [];
+
+      const { data, error } = await supabase
+        .from('bot_actions')
+        .select('*')
+        .eq('user_id', user.id)
+        .order('created_at', { ascending: false })
+        .limit(50);
+
+      if (error) {
+        throw error;
+      }
+
+      return data as BotAction[];
     },
     enabled: !!user,
     refetchInterval: 60000,

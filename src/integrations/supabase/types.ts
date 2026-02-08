@@ -56,6 +56,51 @@ export type Database = {
         }
         Relationships: []
       }
+      bot_actions: {
+        Row: {
+          action: string
+          bollinger_lower: number | null
+          bollinger_middle: number | null
+          bollinger_upper: number | null
+          created_at: string | null
+          distance_ratio: number | null
+          id: string
+          multiplier: number | null
+          price_usd: number | null
+          reason: string | null
+          user_id: string
+          volume_usd: number | null
+        }
+        Insert: {
+          action: string
+          bollinger_lower?: number | null
+          bollinger_middle?: number | null
+          bollinger_upper?: number | null
+          created_at?: string | null
+          distance_ratio?: number | null
+          id?: string
+          multiplier?: number | null
+          price_usd?: number | null
+          reason?: string | null
+          user_id: string
+          volume_usd?: number | null
+        }
+        Update: {
+          action?: string
+          bollinger_lower?: number | null
+          bollinger_middle?: number | null
+          bollinger_upper?: number | null
+          created_at?: string | null
+          distance_ratio?: number | null
+          id?: string
+          multiplier?: number | null
+          price_usd?: number | null
+          reason?: string | null
+          user_id?: string
+          volume_usd?: number | null
+        }
+        Relationships: []
+      }
       bot_config: {
         Row: {
           avg_buy_price: number | null
@@ -71,6 +116,7 @@ export type Database = {
           simulated_balance_usd: number | null
           stop_loss_percent: number | null
           strategy: string | null
+          symbol: string | null
           total_btc_held: number | null
           total_profit_usd: number | null
           total_trades: number | null
@@ -93,6 +139,7 @@ export type Database = {
           simulated_balance_usd?: number | null
           stop_loss_percent?: number | null
           strategy?: string | null
+          symbol?: string | null
           total_btc_held?: number | null
           total_profit_usd?: number | null
           total_trades?: number | null
@@ -115,6 +162,7 @@ export type Database = {
           simulated_balance_usd?: number | null
           stop_loss_percent?: number | null
           strategy?: string | null
+          symbol?: string | null
           total_btc_held?: number | null
           total_profit_usd?: number | null
           total_trades?: number | null
@@ -128,9 +176,14 @@ export type Database = {
       bot_trades: {
         Row: {
           amount_btc: number
+          bollinger_lower: number | null
+          bollinger_middle: number | null
+          bollinger_upper: number | null
           closed_at: string | null
           created_at: string | null
+          distance_ratio: number | null
           id: string
+          multiplier: number | null
           price_usd: number
           profit_usd: number | null
           status: string
@@ -142,9 +195,14 @@ export type Database = {
         }
         Insert: {
           amount_btc: number
+          bollinger_lower?: number | null
+          bollinger_middle?: number | null
+          bollinger_upper?: number | null
           closed_at?: string | null
           created_at?: string | null
+          distance_ratio?: number | null
           id?: string
+          multiplier?: number | null
           price_usd: number
           profit_usd?: number | null
           status: string
@@ -156,9 +214,14 @@ export type Database = {
         }
         Update: {
           amount_btc?: number
+          bollinger_lower?: number | null
+          bollinger_middle?: number | null
+          bollinger_upper?: number | null
           closed_at?: string | null
           created_at?: string | null
+          distance_ratio?: number | null
           id?: string
+          multiplier?: number | null
           price_usd?: number
           profit_usd?: number | null
           status?: string
