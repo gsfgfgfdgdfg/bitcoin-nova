@@ -170,17 +170,19 @@ const TradeHistory = ({ trades, actions = [], isLoading }: TradeHistoryProps) =>
       {/* Details Dialog */}
       <Dialog open={!!selectedItem} onOpenChange={() => setSelectedItem(null)}>
         <DialogContent className="max-w-md">
+          {/* NEW: Safer title with fallback */}
           <DialogHeader>
             <DialogTitle>
               {selectedItem?.actionType === 'trade'
-                ? `${(selectedItem as BotTrade).type} - Szczegóły Wyliczenia`
+                ? `${(selectedItem as BotTrade)?.type ?? ''} - Szczegóły Wyliczenia`
                 : selectedItem?.actionType === 'action'
-                  ? `${(selectedItem as BotAction).action} - Szczegóły`
+                  ? `${(selectedItem as BotAction)?.action ?? ''} - Szczegóły`
                   : 'Szczegóły'}
             </DialogTitle>
           </DialogHeader>
-
-          {selectedItem && (   // ← this is the most important guard
+          
+          {/* NEW: Guard entire content against null */}
+          {selectedItem && (
             <div className="space-y-4">
               {/* Price data */}
               <div className="grid grid-cols-2 gap-3 font-mono text-sm">
