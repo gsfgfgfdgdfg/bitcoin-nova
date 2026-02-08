@@ -12,22 +12,23 @@ import {
 } from '@/components/ui/dialog';
 
 interface TradeHistoryProps {
-  trades?: BotTrade[];     // ? zamiast obowiązkowego
+  trades: BotTrade[];
   actions?: BotAction[];
   isLoading?: boolean;
 }
 
-const TradeHistory = ({ trades = [], actions = [], isLoading }: TradeHistoryProps) => {
-  // ...
+type CombinedAction = (BotTrade & { actionType: 'trade' }) | (BotAction & { actionType: 'action' });
+
+const TradeHistory = ({ trades, actions = [], isLoading }: TradeHistoryProps) => {
+  const [selectedItem, setSelectedItem] = useState<CombinedAction | null>(null);
+
+  // Combine trades and actions, sorted by date
   const allItems = useMemo(() => {
-    const safeTrades = trades ?? [];
-    const safeActions = actions ?? [];
-
-    const tradeItems: CombinedAction[] = safeTrades.map(t => ({ ...t, actionType: 'trade' as const }));
-    const actionItems: CombinedAction[] = safeActions
-      .filter(a => a && (a.action === 'HOLD' || a.action === 'NO_BTC_TO_SELL' || a.action === 'INSUFFICIENT_BALANCE'))
-      .map(a => ({ ...a!, actionType: 'action' as const }));
-
+    const tradeItems: CombinedAction[] = trades.map(t => ({ ...t, actionType: 'trade' as const }));
+    const actionItems: CombinedAction[] = actions
+      .filter(a => a.action === 'HOLD' || a.action === 'NO_BTC_TO_SELL' || a.action === 'INSUFFICIENT_BALANCE')
+      .map(a => ({ ...a, actionType: 'action' as const }));
+    
     return [...tradeItems, ...actionItems]
       .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
       .slice(0, 50);
@@ -171,14 +172,15 @@ const TradeHistory = ({ trades = [], actions = [], isLoading }: TradeHistoryProp
         <DialogContent className="max-w-md">
           <DialogHeader>
             <DialogTitle>
-              {selectedItem?.actionType === 'trade' 
+              {selectedItem?.actionType === 'trade'
                 ? `${(selectedItem as BotTrade).type} - Szczegóły Wyliczenia`
-                : `${(selectedItem as BotAction).action} - Szczegóły`
-              }
+                : selectedItem?.actionType === 'action'
+                  ? `${(selectedItem as BotAction).action} - Szczegóły`
+                  : 'Szczegóły'}
             </DialogTitle>
           </DialogHeader>
-          
-          {selectedItem && (
+
+          {selectedItem && (   // ← this is the most important guard
             <div className="space-y-4">
               {/* Price data */}
               <div className="grid grid-cols-2 gap-3 font-mono text-sm">
