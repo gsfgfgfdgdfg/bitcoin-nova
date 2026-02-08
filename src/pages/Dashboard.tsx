@@ -1,11 +1,12 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useLanguage } from '@/contexts/LanguageContext';
 import { useAuth } from '@/contexts/AuthContext';
-import { useBotConfig, useBotTrades, useBotStats, useCreateBotConfig, useUpdateBotConfig } from '@/hooks/useBotData';
+import { useBotConfig, useBotTrades, useBotStats, useCreateBotConfig, useUpdateBotConfig, useBotActions } from '@/hooks/useBotData';
 import { usePriceHistory } from '@/hooks/usePriceHistory';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Bitcoin, TrendingUp, Bot, Play, Square, Clock, Loader2, Sparkles, RefreshCw, Settings, Zap } from 'lucide-react';
 import BollingerChart from '@/components/BollingerChart';
 import TradeHistory from '@/components/TradeHistory';
@@ -26,6 +27,7 @@ const Dashboard = () => {
 
   const { data: botConfig, isLoading: configLoading } = useBotConfig();
   const { data: trades, isLoading: tradesLoading } = useBotTrades();
+  const { data: actions, isLoading: actionsLoading } = useBotActions();
   const stats = useBotStats();
   const createConfig = useCreateBotConfig();
   const updateConfig = useUpdateBotConfig();
@@ -41,8 +43,36 @@ const Dashboard = () => {
     }
   }, [botConfig?.base_trade_usd]);
 
+  // Get current symbol from config
+  const currentSymbol = botConfig?.symbol || 'BTC-USDT';
+
   // Real price history from BingX - 168 candles = 7 days
-  const { data: priceHistory = [], isLoading: pricesLoading, refetch: refetchPrices } = usePriceHistory('BTC-USDT', '1h', 168);
+  const { data: priceHistory = [], isLoading: pricesLoading, refetch: refetchPrices } = usePriceHistory(currentSymbol, '1h', 168);
+
+  // Get current price for % calculations
+  const currentPrice = priceHistory.length > 0 ? priceHistory[priceHistory.length - 1]?.price || 0 : 0;
+
+  // Calculate Win Rate correctly: profitable SELLs / total SELLs
+  const calculatedStats = useMemo(() => {
+    const sellTrades = (trades || []).filter(t => t.type === 'SELL');
+    const winningSells = sellTrades.filter(t => Number(t.profit_usd) > 0).length;
+    const winRate = sellTrades.length > 0 
+      ? (winningSells / sellTrades.length) * 100 
+      : 0;
+    
+    // Calculate P/L percentage based on initial $10,000
+    const initialBalance = 10000;
+    const currentValue = stats.balance + (stats.totalBtcHeld * currentPrice);
+    const profitPercent = ((currentValue - initialBalance) / initialBalance) * 100;
+    
+    return {
+      winRate,
+      winningSells,
+      totalSells: sellTrades.length,
+      profitPercent,
+      currentValue,
+    };
+  }, [trades, stats.balance, stats.totalBtcHeld, currentPrice]);
 
   useEffect(() => {
     if (!authLoading && !user) {
@@ -50,7 +80,7 @@ const Dashboard = () => {
     }
   }, [user, authLoading, navigate]);
 
-  // Force refresh prices on mount to ensure chart shows current data
+  // Force refresh prices on mount and auto-refresh every 60 seconds
   useEffect(() => {
     const forceRefresh = async () => {
       try {
@@ -63,7 +93,18 @@ const Dashboard = () => {
       }
     };
     forceRefresh();
-  }, [queryClient]);
+
+    // Auto-refresh every 60 seconds
+    const interval = setInterval(() => {
+      queryClient.invalidateQueries({ queryKey: ['price-history'] });
+      queryClient.invalidateQueries({ queryKey: ['current-price'] });
+      queryClient.invalidateQueries({ queryKey: ['bot-trades'] });
+      queryClient.invalidateQueries({ queryKey: ['bot-actions'] });
+      refetchPrices();
+    }, 60000);
+
+    return () => clearInterval(interval);
+  }, [queryClient, refetchPrices]);
 
   // Test bot handler
   const handleTestBot = async () => {
@@ -79,13 +120,14 @@ const Dashboard = () => {
       // Refresh data
       queryClient.invalidateQueries({ queryKey: ['bot-trades'] });
       queryClient.invalidateQueries({ queryKey: ['bot-config'] });
+      queryClient.invalidateQueries({ queryKey: ['bot-actions'] });
       queryClient.invalidateQueries({ queryKey: ['price-history'] });
       
       // Toast notification
       toast({
         title: `Bot: ${action}`,
         description: details 
-          ? `${formatUSD(details.volume)} @ $${details.price?.toLocaleString() || 'N/A'}`
+          ? `${formatUSD(details.volumeUsd || details.volume || 0)} @ $${details.price?.toLocaleString() || 'N/A'}`
           : 'Test zakończony',
       });
     } catch (error: any) {
@@ -110,6 +152,10 @@ const Dashboard = () => {
     if (botConfig) {
       updateConfig.mutate({ is_running: !botConfig.is_running });
     }
+  };
+
+  const handleSymbolChange = (symbol: string) => {
+    updateConfig.mutate({ symbol });
   };
 
   if (authLoading || configLoading) {
@@ -171,7 +217,7 @@ const Dashboard = () => {
               )}
             </div>
 
-            {/* P&L Card */}
+            {/* P&L Card - with percentage */}
             <div className="cyber-card rounded-xl p-6">
               <div className="flex items-center gap-3 mb-4">
                 <div className="w-10 h-10 rounded-lg bg-success/20 flex items-center justify-center">
@@ -179,11 +225,17 @@ const Dashboard = () => {
                 </div>
                 <span className="text-muted-foreground font-medium">{t.dashboard.pnl}</span>
               </div>
-              <p className={`font-display text-3xl font-bold ${stats.totalProfit >= 0 ? 'text-success' : 'text-destructive'}`}>
+              {/* Percentage display (main) */}
+              <p className={`font-display text-3xl font-bold ${calculatedStats.profitPercent >= 0 ? 'text-success' : 'text-destructive'}`}>
+                {calculatedStats.profitPercent >= 0 ? '+' : ''}{calculatedStats.profitPercent.toFixed(2)}%
+              </p>
+              {/* USD amount (secondary) */}
+              <p className={`font-mono text-sm ${stats.totalProfit >= 0 ? 'text-success' : 'text-destructive'}`}>
                 {stats.totalProfit >= 0 ? '+' : ''}{formatUSD(stats.totalProfit)}
               </p>
-              <p className="text-muted-foreground font-mono text-sm">
-                Win rate: {stats.winRate.toFixed(1)}% ({stats.winningTrades}/{stats.totalTrades})
+              {/* Win rate - corrected */}
+              <p className="text-muted-foreground font-mono text-xs mt-1">
+                {language === 'pl' ? 'Zyskowne' : 'Profitable'}: {calculatedStats.winningSells}/{calculatedStats.totalSells} ({calculatedStats.winRate.toFixed(0)}%)
               </p>
             </div>
 
@@ -245,10 +297,24 @@ const Dashboard = () => {
                   <Settings className="w-5 h-5 text-muted-foreground" />
                 </div>
                 <span className="text-muted-foreground font-medium">
-                  {language === 'pl' ? 'Kwota Bazowa' : 'Base Amount'}
+                  {language === 'pl' ? 'Konfiguracja' : 'Configuration'}
                 </span>
               </div>
-              <div className="space-y-2">
+              <div className="space-y-3">
+                {/* Symbol selector */}
+                <div className="flex items-center gap-2">
+                  <Select value={currentSymbol} onValueChange={handleSymbolChange}>
+                    <SelectTrigger className="w-full">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="BTC-USDT">BTC/USDT</SelectItem>
+                      <SelectItem value="ETH-USDT">ETH/USDT</SelectItem>
+                      <SelectItem value="SOL-USDT">SOL/USDT</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                {/* Base amount */}
                 <div className="flex items-center gap-2">
                   <Input
                     id="baseAmount"
@@ -264,12 +330,12 @@ const Dashboard = () => {
                         updateConfig.mutate({ base_trade_usd: value });
                       }
                     }}
-                    className="w-24 text-center font-mono"
+                    className="w-20 text-center font-mono"
                   />
-                  <span className="text-muted-foreground">USD</span>
+                  <span className="text-muted-foreground text-sm">USD base</span>
                 </div>
                 <p className="text-xs text-muted-foreground">
-                  Min: {((botConfig?.base_trade_usd || 6) * 1.1).toFixed(2)} | Max: {((botConfig?.base_trade_usd || 6) * 2).toFixed(2)} USD
+                  {language === 'pl' ? 'Zakres' : 'Range'}: {((botConfig?.base_trade_usd || 6) * 1).toFixed(2)} - {((botConfig?.base_trade_usd || 6) * 2).toFixed(2)} USD
                 </p>
               </div>
             </div>
@@ -280,7 +346,7 @@ const Dashboard = () => {
             <div className="flex items-center justify-between mb-4">
               <h2 className="font-display text-xl font-bold text-foreground flex items-center gap-2">
                 <Bot className="w-5 h-5 text-bitcoin-orange" />
-                {language === 'pl' ? 'Wykres Strategii Bollingera (1h, 7 dni)' : 'Bollinger Strategy Chart (1h, 7 days)'}
+                {language === 'pl' ? `Wykres ${currentSymbol} (1h, 7 dni)` : `${currentSymbol} Chart (1h, 7 days)`}
               </h2>
               <Button
                 variant="ghost"
@@ -297,7 +363,7 @@ const Dashboard = () => {
                 <Loader2 className="w-8 h-8 animate-spin text-bitcoin-orange" />
               </div>
             ) : (
-              <BollingerChart priceHistory={priceHistory} />
+              <BollingerChart priceHistory={priceHistory} trades={trades || []} />
             )}
           </div>
 
@@ -307,7 +373,11 @@ const Dashboard = () => {
               <Clock className="w-5 h-5 text-bitcoin-orange" />
               {t.dashboard.recentActions}
             </h2>
-            <TradeHistory trades={trades || []} isLoading={tradesLoading} />
+            <TradeHistory 
+              trades={trades || []} 
+              actions={actions || []}
+              isLoading={tradesLoading || actionsLoading} 
+            />
           </div>
 
           {/* Strategy Explainer */}

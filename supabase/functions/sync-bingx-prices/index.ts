@@ -7,6 +7,9 @@ const corsHeaders = {
 
 const BINGX_BASE_URL = "https://open-api.bingx.com";
 
+// Supported trading pairs
+const SUPPORTED_SYMBOLS = ['BTC-USDT', 'ETH-USDT', 'SOL-USDT'];
+
 interface KlineData {
   open: string;
   high: string;
@@ -29,78 +32,97 @@ Deno.serve(async (req) => {
   }
 
   try {
-    console.log("Starting BingX price sync...");
+    console.log("Starting BingX price sync for all symbols...");
 
     // Initialize Supabase client with service role for writes
     const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
     const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
     const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
-    // Fetch 1h klines from BingX (public API - no auth required)
-    const klineUrl = `${BINGX_BASE_URL}/openApi/swap/v2/quote/klines?symbol=BTC-USDT&interval=1h&limit=50`;
-    console.log("Fetching from BingX:", klineUrl);
-    
-    const response = await fetch(klineUrl);
-    
-    if (!response.ok) {
-      throw new Error(`BingX API error: ${response.status} ${response.statusText}`);
+    const results: Record<string, { price: number; change24h: number; candleCount: number }> = {};
+
+    // Sync each symbol
+    for (const symbol of SUPPORTED_SYMBOLS) {
+      try {
+        // Fetch 1h klines from BingX (public API - no auth required)
+        const klineUrl = `${BINGX_BASE_URL}/openApi/swap/v2/quote/klines?symbol=${symbol}&interval=1h&limit=50`;
+        console.log(`Fetching ${symbol} from BingX:`, klineUrl);
+        
+        const response = await fetch(klineUrl);
+        
+        if (!response.ok) {
+          console.error(`BingX API error for ${symbol}: ${response.status} ${response.statusText}`);
+          continue;
+        }
+
+        const data: BingXResponse = await response.json();
+        console.log(`${symbol} response code:`, data.code, "msg:", data.msg);
+
+        if (data.code !== 0 || !data.data || !Array.isArray(data.data)) {
+          console.error(`BingX API returned error for ${symbol}: ${data.msg}`);
+          continue;
+        }
+
+        // Parse klines and prepare for upsert
+        const klines = data.data.map((k: KlineData) => ({
+          symbol: symbol,
+          interval: "1h",
+          candle_time: new Date(parseInt(k.time)).toISOString(),
+          open_price: parseFloat(k.open),
+          high_price: parseFloat(k.high),
+          low_price: parseFloat(k.low),
+          close_price: parseFloat(k.close),
+          volume: parseFloat(k.volume),
+        }));
+
+        console.log(`${symbol}: Parsed ${klines.length} candles, latest price: $${klines[klines.length - 1]?.close_price}`);
+
+        // Upsert to database (ignore duplicates based on unique constraint)
+        const { error: upsertError } = await supabase
+          .from("price_history")
+          .upsert(klines, {
+            onConflict: "symbol,interval,candle_time",
+            ignoreDuplicates: false,
+          });
+
+        if (upsertError) {
+          console.error(`Upsert error for ${symbol}:`, upsertError);
+          continue;
+        }
+
+        // Calculate 24h change
+        const latestPrice = klines[klines.length - 1]?.close_price || 0;
+        const price24hAgo = klines.length >= 24 
+          ? klines[klines.length - 24]?.close_price 
+          : klines[0]?.close_price || latestPrice;
+        
+        const change24h = price24hAgo > 0 
+          ? ((latestPrice - price24hAgo) / price24hAgo) * 100 
+          : 0;
+
+        results[symbol] = {
+          price: latestPrice,
+          change24h: change24h,
+          candleCount: klines.length,
+        };
+
+        console.log(`Successfully synced ${symbol}`);
+      } catch (symbolError) {
+        console.error(`Error syncing ${symbol}:`, symbolError);
+      }
     }
 
-    const data: BingXResponse = await response.json();
-    console.log("BingX response code:", data.code, "msg:", data.msg);
+    console.log("Successfully synced price data for all symbols");
 
-    if (data.code !== 0 || !data.data || !Array.isArray(data.data)) {
-      throw new Error(`BingX API returned error: ${data.msg}`);
-    }
-
-    // Parse klines and prepare for upsert
-    const klines = data.data.map((k: KlineData) => ({
-      symbol: "BTC-USDT",
-      interval: "1h",
-      candle_time: new Date(parseInt(k.time)).toISOString(),
-      open_price: parseFloat(k.open),
-      high_price: parseFloat(k.high),
-      low_price: parseFloat(k.low),
-      close_price: parseFloat(k.close),
-      volume: parseFloat(k.volume),
-    }));
-
-    console.log(`Parsed ${klines.length} candles, latest price: $${klines[klines.length - 1]?.close_price}`);
-
-    // Upsert to database (ignore duplicates based on unique constraint)
-    const { error: upsertError } = await supabase
-      .from("price_history")
-      .upsert(klines, {
-        onConflict: "symbol,interval,candle_time",
-        ignoreDuplicates: false,
-      });
-
-    if (upsertError) {
-      console.error("Upsert error:", upsertError);
-      throw upsertError;
-    }
-
-    console.log("Successfully synced price data to database");
-
-    // Calculate 24h change
-    const latestPrice = klines[klines.length - 1]?.close_price || 0;
-    const price24hAgo = klines.length >= 24 
-      ? klines[klines.length - 24]?.close_price 
-      : klines[0]?.close_price || latestPrice;
+    // Return primary BTC data for backward compatibility
+    const btcData = results['BTC-USDT'] || { price: 0, change24h: 0, candleCount: 0 };
     
-    const change24h = price24hAgo > 0 
-      ? ((latestPrice - price24hAgo) / price24hAgo) * 100 
-      : 0;
-
-    // Return current price data for frontend
     const result = {
-      price: latestPrice,
-      change24h: change24h,
-      high24h: Math.max(...klines.slice(-24).map((k: { high_price: number }) => k.high_price)),
-      low24h: Math.min(...klines.slice(-24).map((k: { low_price: number }) => k.low_price)),
-      volume24h: klines.slice(-24).reduce((sum: number, k: { volume: number }) => sum + k.volume, 0),
+      price: btcData.price,
+      change24h: btcData.change24h,
       lastUpdate: new Date().toISOString(),
-      candleCount: klines.length,
+      candleCount: btcData.candleCount,
+      allSymbols: results,
     };
 
     console.log("Returning price data:", JSON.stringify(result));

@@ -1,10 +1,12 @@
 import { useMemo } from 'react';
-import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Area, ComposedChart, ReferenceLine } from 'recharts';
-import { BollingerBands, calculateBollingerBands, calculateSMA } from '@/lib/bollinger';
+import { XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Area, ComposedChart, Line, Scatter, Cell } from 'recharts';
+import { BollingerBands, calculateBollingerBands } from '@/lib/bollinger';
+import { BotTrade } from '@/hooks/useBotData';
 
 interface BollingerChartProps {
   priceHistory: { price: number; timestamp: number }[];
   currentBands?: BollingerBands;
+  trades?: BotTrade[];
 }
 
 const formatDateTime = (timestamp: number): string => {
@@ -17,15 +19,27 @@ const formatDateTime = (timestamp: number): string => {
   });
 };
 
-const BollingerChart = ({ priceHistory, currentBands }: BollingerChartProps) => {
+const BollingerChart = ({ priceHistory, currentBands, trades = [] }: BollingerChartProps) => {
+  // Map trades to timestamps for markers
+  const tradeMarkers = useMemo(() => {
+    return trades.map(trade => ({
+      timestamp: new Date(trade.created_at).getTime(),
+      type: trade.type,
+      price: Number(trade.price_usd),
+    }));
+  }, [trades]);
+
   const chartData = useMemo(() => {
     if (priceHistory.length < 20) {
-      return priceHistory.map((p, i) => ({
+      return priceHistory.map((p) => ({
         time: formatDateTime(p.timestamp),
+        timestamp: p.timestamp,
         price: p.price,
         upper: p.price * 1.02,
         middle: p.price,
         lower: p.price * 0.98,
+        buyMarker: null as number | null,
+        sellMarker: null as number | null,
       }));
     }
 
@@ -33,15 +47,23 @@ const BollingerChart = ({ priceHistory, currentBands }: BollingerChartProps) => 
       const prices = priceHistory.slice(0, index + 1).map(p => p.price);
       const bands = calculateBollingerBands(prices, 20, 2);
       
+      // Find if there's a trade marker near this timestamp (within 1 hour = 3600000ms)
+      const nearbyTrade = tradeMarkers.find(t => 
+        Math.abs(t.timestamp - point.timestamp) < 3600000
+      );
+      
       return {
         time: formatDateTime(point.timestamp),
+        timestamp: point.timestamp,
         price: point.price,
         upper: bands.upper,
         middle: bands.middle,
         lower: bands.lower,
+        buyMarker: nearbyTrade?.type === 'BUY' ? nearbyTrade.price : null,
+        sellMarker: nearbyTrade?.type === 'SELL' ? nearbyTrade.price : null,
       };
     });
-  }, [priceHistory]);
+  }, [priceHistory, tradeMarkers]);
 
   if (priceHistory.length === 0) {
     return (
@@ -90,7 +112,12 @@ const BollingerChart = ({ priceHistory, currentBands }: BollingerChartProps) => 
             labelStyle={{ color: 'hsl(var(--foreground))' }}
             formatter={(value: number, name: string) => [
               `$${value.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
-              name === 'price' ? 'Price' : name === 'upper' ? 'Upper Band' : name === 'middle' ? 'MA (20)' : 'Lower Band'
+              name === 'price' ? 'Price' : 
+              name === 'upper' ? 'Upper Band' : 
+              name === 'middle' ? 'MA (20)' : 
+              name === 'lower' ? 'Lower Band' :
+              name === 'buyMarker' ? '🟢 BUY' :
+              name === 'sellMarker' ? '🔴 SELL' : name
             ]}
           />
 
@@ -139,6 +166,32 @@ const BollingerChart = ({ priceHistory, currentBands }: BollingerChartProps) => 
             strokeWidth={2}
             dot={false}
           />
+
+          {/* BUY Markers */}
+          <Scatter
+            dataKey="buyMarker"
+            fill="#22c55e"
+            shape="circle"
+          >
+            {chartData.map((entry, index) => (
+              entry.buyMarker !== null ? (
+                <Cell key={`buy-${index}`} fill="#22c55e" />
+              ) : null
+            ))}
+          </Scatter>
+
+          {/* SELL Markers */}
+          <Scatter
+            dataKey="sellMarker"
+            fill="#f97316"
+            shape="circle"
+          >
+            {chartData.map((entry, index) => (
+              entry.sellMarker !== null ? (
+                <Cell key={`sell-${index}`} fill="#f97316" />
+              ) : null
+            ))}
+          </Scatter>
         </ComposedChart>
       </ResponsiveContainer>
     </div>
