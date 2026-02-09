@@ -9,7 +9,6 @@ import { Input } from '@/components/ui/input';
 import { Bitcoin, TrendingUp, Bot, Play, Square, Clock, Loader2, Sparkles, RefreshCw, Settings, Zap } from 'lucide-react';
 import BollingerChart from '@/components/BollingerChart';
 import TradeHistory from '@/components/TradeHistory';
-import StrategyExplainer from '@/components/StrategyExplainer';
 import { formatUSD } from '@/lib/bollinger';
 import { supabase } from '@/integrations/supabase/client';
 import { useQueryClient } from '@tanstack/react-query';
@@ -399,11 +398,6 @@ const Dashboard = () => {
               actions={actions || []}
               isLoading={tradesLoading || actionsLoading} 
             />
-          </div>
-
-          {/* Strategy Explainer */}
-          <div className="lg:col-span-3">
-            <StrategyExplainer />
           </div>
         </div>
       </div>
