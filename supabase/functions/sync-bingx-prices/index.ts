@@ -7,8 +7,8 @@ const corsHeaders = {
 
 const BINGX_BASE_URL = "https://open-api.bingx.com";
 
-// Supported trading pairs
-const SUPPORTED_SYMBOLS = ['BTC-USDT', 'ETH-USDT', 'SOL-USDT'];
+// Default supported trading pairs
+const DEFAULT_SYMBOLS = ['BTC-USDT', 'ETH-USDT', 'SOL-USDT', 'XAUT-USDT'];
 
 interface KlineData {
   open: string;
@@ -26,25 +26,31 @@ interface BingXResponse {
 }
 
 Deno.serve(async (req) => {
-  // Handle CORS preflight
   if (req.method === "OPTIONS") {
     return new Response(null, { headers: corsHeaders });
   }
 
   try {
-    console.log("Starting BingX price sync for all symbols...");
+    console.log("Starting BingX price sync...");
 
-    // Initialize Supabase client with service role for writes
     const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
     const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
     const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
+    // Get dynamic symbols from all bot configs
+    const { data: configs } = await supabase
+      .from("bot_config")
+      .select("symbol");
+
+    const dynamicSymbols = [...new Set((configs || []).map((c: { symbol: string | null }) => c.symbol).filter(Boolean))] as string[];
+    const allSymbols = [...new Set([...DEFAULT_SYMBOLS, ...dynamicSymbols])];
+
+    console.log("Syncing symbols:", allSymbols.join(', '));
+
     const results: Record<string, { price: number; change24h: number; candleCount: number }> = {};
 
-    // Sync each symbol
-    for (const symbol of SUPPORTED_SYMBOLS) {
+    for (const symbol of allSymbols) {
       try {
-        // Fetch 1h klines from BingX (public API - no auth required)
         const klineUrl = `${BINGX_BASE_URL}/openApi/swap/v2/quote/klines?symbol=${symbol}&interval=1h&limit=50`;
         console.log(`Fetching ${symbol} from BingX:`, klineUrl);
         
@@ -63,7 +69,6 @@ Deno.serve(async (req) => {
           continue;
         }
 
-        // Parse klines and prepare for upsert
         const klines = data.data.map((k: KlineData) => ({
           symbol: symbol,
           interval: "1h",
@@ -77,7 +82,6 @@ Deno.serve(async (req) => {
 
         console.log(`${symbol}: Parsed ${klines.length} candles, latest price: $${klines[klines.length - 1]?.close_price}`);
 
-        // Upsert to database (ignore duplicates based on unique constraint)
         const { error: upsertError } = await supabase
           .from("price_history")
           .upsert(klines, {
@@ -90,7 +94,6 @@ Deno.serve(async (req) => {
           continue;
         }
 
-        // Calculate 24h change
         const latestPrice = klines[klines.length - 1]?.close_price || 0;
         const price24hAgo = klines.length >= 24 
           ? klines[klines.length - 24]?.close_price 
@@ -114,7 +117,6 @@ Deno.serve(async (req) => {
 
     console.log("Successfully synced price data for all symbols");
 
-    // Return primary BTC data for backward compatibility
     const btcData = results['BTC-USDT'] || { price: 0, change24h: 0, candleCount: 0 };
     
     const result = {
