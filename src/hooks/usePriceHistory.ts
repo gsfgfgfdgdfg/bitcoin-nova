@@ -29,7 +29,7 @@ export const usePriceHistory = (symbol = 'BTC-USDT', interval = '1h', limit = 16
         .select('close_price, open_price, high_price, low_price, volume, candle_time')
         .eq('symbol', symbol)
         .eq('interval', interval)
-        .order('candle_time', { ascending: true })
+        .order('candle_time', { ascending: false })
         .limit(limit);
 
       if (error) {
@@ -37,7 +37,7 @@ export const usePriceHistory = (symbol = 'BTC-USDT', interval = '1h', limit = 16
         throw error;
       }
 
-      return (data || []).map((p: PriceHistoryRow) => ({
+      return (data || []).reverse().map((p: PriceHistoryRow) => ({
         price: Number(p.close_price),
         timestamp: new Date(p.candle_time).getTime(),
         open: Number(p.open_price),

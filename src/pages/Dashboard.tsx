@@ -6,7 +6,6 @@ import { useBotConfig, useBotTrades, useBotStats, useCreateBotConfig, useUpdateB
 import { usePriceHistory } from '@/hooks/usePriceHistory';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Bitcoin, TrendingUp, Bot, Play, Square, Clock, Loader2, Sparkles, RefreshCw, Settings, Zap } from 'lucide-react';
 import BollingerChart from '@/components/BollingerChart';
 import TradeHistory from '@/components/TradeHistory';
@@ -36,6 +35,10 @@ const Dashboard = () => {
   const [baseAmountInput, setBaseAmountInput] = useState<string>('6');
   const [isTestingBot, setIsTestingBot] = useState(false);
 
+  // Currency pair inputs
+  const [coinInput, setCoinInput] = useState('BTC');
+  const [quoteInput, setQuoteInput] = useState('USDT');
+
   // Sync base amount input with config
   useEffect(() => {
     if (botConfig?.base_trade_usd) {
@@ -43,8 +46,18 @@ const Dashboard = () => {
     }
   }, [botConfig?.base_trade_usd]);
 
+  // Sync currency pair inputs with config
+  useEffect(() => {
+    if (botConfig?.symbol) {
+      const [coin, quote] = botConfig.symbol.split('-');
+      setCoinInput(coin || 'BTC');
+      setQuoteInput(quote || 'USDT');
+    }
+  }, [botConfig?.symbol]);
+
   // Get current symbol from config
   const currentSymbol = botConfig?.symbol || 'BTC-USDT';
+  const isRunning = botConfig?.is_running || false;
 
   // Real price history from BingX - 168 candles = 7 days
   const { data: priceHistory = [], isLoading: pricesLoading, refetch: refetchPrices } = usePriceHistory(currentSymbol, '1h', 168);
@@ -94,7 +107,6 @@ const Dashboard = () => {
     };
     forceRefresh();
 
-    // Auto-refresh every 60 seconds
     const interval = setInterval(() => {
       queryClient.invalidateQueries({ queryKey: ['price-history'] });
       queryClient.invalidateQueries({ queryKey: ['current-price'] });
@@ -117,13 +129,11 @@ const Dashboard = () => {
       const action = result?.action || 'NO_ACTION';
       const details = result?.details;
       
-      // Refresh data
       queryClient.invalidateQueries({ queryKey: ['bot-trades'] });
       queryClient.invalidateQueries({ queryKey: ['bot-config'] });
       queryClient.invalidateQueries({ queryKey: ['bot-actions'] });
       queryClient.invalidateQueries({ queryKey: ['price-history'] });
       
-      // Toast notification
       toast({
         title: `Bot: ${action}`,
         description: details 
@@ -142,7 +152,6 @@ const Dashboard = () => {
   };
 
   useEffect(() => {
-    // Create default config for new users
     if (user && !configLoading && !botConfig) {
       createConfig.mutate({});
     }
@@ -154,8 +163,13 @@ const Dashboard = () => {
     }
   };
 
-  const handleSymbolChange = (symbol: string) => {
-    updateConfig.mutate({ symbol });
+  const handleSaveSymbol = () => {
+    if (!isRunning && coinInput && quoteInput) {
+      const newSymbol = `${coinInput.toUpperCase()}-${quoteInput.toUpperCase()}`;
+      if (newSymbol !== currentSymbol) {
+        updateConfig.mutate({ symbol: newSymbol });
+      }
+    }
   };
 
   if (authLoading || configLoading) {
@@ -169,8 +183,6 @@ const Dashboard = () => {
   if (!user) {
     return null;
   }
-
-  const isRunning = botConfig?.is_running || false;
 
   return (
     <div className="min-h-screen pb-24">
@@ -208,7 +220,7 @@ const Dashboard = () => {
                 {formatUSD(stats.balance)}
               </p>
               <p className="text-muted-foreground font-mono text-sm">
-                + {stats.totalBtcHeld.toFixed(6)} BTC
+                + {stats.totalBtcHeld.toFixed(6)} {coinInput}
               </p>
               {stats.avgBuyPrice > 0 && (
                 <p className="text-muted-foreground font-mono text-xs">
@@ -217,7 +229,7 @@ const Dashboard = () => {
               )}
             </div>
 
-            {/* P&L Card - with percentage */}
+            {/* P&L Card - percentage first */}
             <div className="cyber-card rounded-xl p-6">
               <div className="flex items-center gap-3 mb-4">
                 <div className="w-10 h-10 rounded-lg bg-success/20 flex items-center justify-center">
@@ -225,15 +237,12 @@ const Dashboard = () => {
                 </div>
                 <span className="text-muted-foreground font-medium">{t.dashboard.pnl}</span>
               </div>
-              {/* Percentage display (main) */}
               <p className={`font-display text-3xl font-bold ${calculatedStats.profitPercent >= 0 ? 'text-success' : 'text-destructive'}`}>
                 {calculatedStats.profitPercent >= 0 ? '+' : ''}{calculatedStats.profitPercent.toFixed(2)}%
               </p>
-              {/* USD amount (secondary) */}
               <p className={`font-mono text-sm ${stats.totalProfit >= 0 ? 'text-success' : 'text-destructive'}`}>
                 {stats.totalProfit >= 0 ? '+' : ''}{formatUSD(stats.totalProfit)}
               </p>
-              {/* Win rate - corrected */}
               <p className="text-muted-foreground font-mono text-xs mt-1">
                 {language === 'pl' ? 'Zyskowne' : 'Profitable'}: {calculatedStats.winningSells}/{calculatedStats.totalSells} ({calculatedStats.winRate.toFixed(0)}%)
               </p>
@@ -301,19 +310,31 @@ const Dashboard = () => {
                 </span>
               </div>
               <div className="space-y-3">
-                {/* Symbol selector */}
-                <div className="flex items-center gap-2">
-                  <Select value={currentSymbol} onValueChange={handleSymbolChange}>
-                    <SelectTrigger className="w-full">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="BTC-USDT">BTC/USDT</SelectItem>
-                      <SelectItem value="ETH-USDT">ETH/USDT</SelectItem>
-                      <SelectItem value="SOL-USDT">SOL/USDT</SelectItem>
-                    </SelectContent>
-                  </Select>
+                {/* Currency pair inputs */}
+                <div className="flex items-center gap-1">
+                  <Input
+                    value={coinInput}
+                    onChange={(e) => setCoinInput(e.target.value.toUpperCase())}
+                    onBlur={handleSaveSymbol}
+                    disabled={isRunning}
+                    className="w-20 text-center font-mono"
+                    placeholder="BTC"
+                  />
+                  <span className="text-muted-foreground">/</span>
+                  <Input
+                    value={quoteInput}
+                    onChange={(e) => setQuoteInput(e.target.value.toUpperCase())}
+                    onBlur={handleSaveSymbol}
+                    disabled={isRunning}
+                    className="w-20 text-center font-mono"
+                    placeholder="USDT"
+                  />
                 </div>
+                {isRunning && (
+                  <p className="text-xs text-destructive">
+                    {language === 'pl' ? 'Zatrzymaj bota aby zmienić parę' : 'Stop bot to change pair'}
+                  </p>
+                )}
                 {/* Base amount */}
                 <div className="flex items-center gap-2">
                   <Input
