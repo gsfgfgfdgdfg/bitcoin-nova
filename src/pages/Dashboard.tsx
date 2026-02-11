@@ -166,7 +166,15 @@ const Dashboard = () => {
     if (!isRunning && coinInput && quoteInput) {
       const newSymbol = `${coinInput.toUpperCase()}-${quoteInput.toUpperCase()}`;
       if (newSymbol !== currentSymbol) {
-        updateConfig.mutate({ symbol: newSymbol });
+        // Reset position data when changing symbol
+        updateConfig.mutate({
+          symbol: newSymbol,
+          total_btc_held: 0,
+          avg_buy_price: 0,
+          total_profit_usd: 0,
+          total_trades: 0,
+          winning_trades: 0,
+        });
       }
     }
   };
@@ -383,7 +391,7 @@ const Dashboard = () => {
                 <Loader2 className="w-8 h-8 animate-spin text-bitcoin-orange" />
               </div>
             ) : (
-              <BollingerChart priceHistory={priceHistory} trades={trades || []} />
+              <BollingerChart priceHistory={priceHistory} trades={trades || []} symbol={currentSymbol} />
             )}
           </div>
 

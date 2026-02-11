@@ -132,16 +132,22 @@ const TradeHistory = ({ trades, actions = [], isLoading }: TradeHistoryProps) =>
         </div>
         <div className="text-right flex items-center gap-2">
           <div>
-            {trade.profit_usd !== null && trade.type === 'SELL' && (
-              <p
-                className={`text-sm font-semibold ${
-                  Number(trade.profit_usd) >= 0 ? 'text-success' : 'text-destructive'
-                }`}
-              >
-                {Number(trade.profit_usd) >= 0 ? '+' : ''}
-                {formatUSD(Number(trade.profit_usd))}
-              </p>
-            )}
+            {trade.profit_usd !== null && trade.type === 'SELL' && (() => {
+              const profit = Number(trade.profit_usd);
+              const sellPrice = Number(trade.price_usd);
+              const amount = Number(trade.amount_btc);
+              const avgBuy = amount > 0 ? sellPrice - (profit / amount) : 0;
+              const profitPct = avgBuy > 0 ? ((sellPrice - avgBuy) / avgBuy * 100) : 0;
+              return (
+                <p
+                  className={`text-sm font-semibold ${
+                    profit >= 0 ? 'text-success' : 'text-destructive'
+                  }`}
+                >
+                  {profitPct >= 0 ? '+' : ''}{profitPct.toFixed(2)}%
+                </p>
+              );
+            })()}
             <p className="text-muted-foreground text-xs">
               {formatDistanceToNow(new Date(trade.created_at), { addSuffix: true, locale: pl })}
             </p>
@@ -266,17 +272,27 @@ const TradeHistory = ({ trades, actions = [], isLoading }: TradeHistoryProps) =>
               </div>
 
               {/* Profit for SELL trades */}
-              {selectedItem.actionType === 'trade' && (selectedItem as BotTrade).type === 'SELL' && (selectedItem as BotTrade).profit_usd !== null && (
-                <>
-                  <hr className="border-border" />
-                  <div className={`text-center font-display text-xl font-bold ${
-                    Number((selectedItem as BotTrade).profit_usd) >= 0 ? 'text-success' : 'text-destructive'
-                  }`}>
-                    {Number((selectedItem as BotTrade).profit_usd) >= 0 ? '+' : ''}
-                    ${Number((selectedItem as BotTrade).profit_usd).toFixed(2)}
-                  </div>
-                </>
-              )}
+              {selectedItem.actionType === 'trade' && (selectedItem as BotTrade).type === 'SELL' && (selectedItem as BotTrade).profit_usd !== null && (() => {
+                const trade = selectedItem as BotTrade;
+                const profit = Number(trade.profit_usd);
+                const sellPrice = Number(trade.price_usd);
+                const amount = Number(trade.amount_btc);
+                const avgBuy = amount > 0 ? sellPrice - (profit / amount) : 0;
+                const profitPct = avgBuy > 0 ? ((sellPrice - avgBuy) / avgBuy * 100) : 0;
+                return (
+                  <>
+                    <hr className="border-border" />
+                    <div className={`text-center font-display text-xl font-bold ${
+                      profit >= 0 ? 'text-success' : 'text-destructive'
+                    }`}>
+                      {profitPct >= 0 ? '+' : ''}{profitPct.toFixed(2)}%
+                    </div>
+                    <p className={`text-center text-sm ${profit >= 0 ? 'text-success/70' : 'text-destructive/70'}`}>
+                      ({profit >= 0 ? '+' : ''}{formatUSD(profit)})
+                    </p>
+                  </>
+                );
+              })()}
 
               {/* Reason for actions */}
               {selectedItem.actionType === 'action' && (
