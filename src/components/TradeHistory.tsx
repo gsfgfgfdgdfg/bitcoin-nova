@@ -135,8 +135,8 @@ const TradeHistory = ({ trades, actions = [], isLoading }: TradeHistoryProps) =>
             {trade.profit_usd !== null && trade.type === 'SELL' && (() => {
               const profit = Number(trade.profit_usd);
               const sellPrice = Number(trade.price_usd);
-              const amount = Number(trade.amount_btc);
-              const avgBuy = amount > 0 ? sellPrice - (profit / amount) : 0;
+              const avgBuy = trade.avg_buy_price_at_sell ? Number(trade.avg_buy_price_at_sell) : 
+                (Number(trade.amount_btc) > 0 ? sellPrice - (profit / Number(trade.amount_btc)) : 0);
               const profitPct = avgBuy > 0 ? ((sellPrice - avgBuy) / avgBuy * 100) : 0;
               return (
                 <p
@@ -276,12 +276,22 @@ const TradeHistory = ({ trades, actions = [], isLoading }: TradeHistoryProps) =>
                 const trade = selectedItem as BotTrade;
                 const profit = Number(trade.profit_usd);
                 const sellPrice = Number(trade.price_usd);
-                const amount = Number(trade.amount_btc);
-                const avgBuy = amount > 0 ? sellPrice - (profit / amount) : 0;
+                const avgBuy = trade.avg_buy_price_at_sell ? Number(trade.avg_buy_price_at_sell) :
+                  (Number(trade.amount_btc) > 0 ? sellPrice - (profit / Number(trade.amount_btc)) : 0);
                 const profitPct = avgBuy > 0 ? ((sellPrice - avgBuy) / avgBuy * 100) : 0;
                 return (
                   <>
                     <hr className="border-border" />
+                    <div className="space-y-1">
+                      <div className="flex justify-between text-sm font-mono">
+                        <span className="text-muted-foreground">Śr. cena zakupu (FIFO):</span>
+                        <span className="font-semibold">${avgBuy.toFixed(2)}</span>
+                      </div>
+                      <div className="flex justify-between text-sm font-mono">
+                        <span className="text-muted-foreground">Cena sprzedaży:</span>
+                        <span className="font-semibold">${sellPrice.toFixed(2)}</span>
+                      </div>
+                    </div>
                     <div className={`text-center font-display text-xl font-bold ${
                       profit >= 0 ? 'text-success' : 'text-destructive'
                     }`}>
