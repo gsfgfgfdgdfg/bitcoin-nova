@@ -179,6 +179,7 @@ export type Database = {
       bot_trades: {
         Row: {
           amount_btc: number
+          avg_buy_price_at_sell: number | null
           bollinger_lower: number | null
           bollinger_middle: number | null
           bollinger_upper: number | null
@@ -199,6 +200,7 @@ export type Database = {
         }
         Insert: {
           amount_btc: number
+          avg_buy_price_at_sell?: number | null
           bollinger_lower?: number | null
           bollinger_middle?: number | null
           bollinger_upper?: number | null
@@ -219,6 +221,7 @@ export type Database = {
         }
         Update: {
           amount_btc?: number
+          avg_buy_price_at_sell?: number | null
           bollinger_lower?: number | null
           bollinger_middle?: number | null
           bollinger_upper?: number | null

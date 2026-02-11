@@ -315,10 +315,6 @@ Reason: ${signal.reason}`
         }
 
         const btcBought = signal.volumeUsd / currentPrice;
-        
-        const totalValue = (totalBtcHeld * avgBuyPrice) + (btcBought * currentPrice);
-        const newTotalBtc = totalBtcHeld + btcBought;
-        const newAvgBuyPrice = newTotalBtc > 0 ? totalValue / newTotalBtc : currentPrice;
         const newBalance = currentBalance - signal.volumeUsd;
 
         const { error: tradeError } = await supabase
@@ -343,6 +339,20 @@ Reason: ${signal.reason}`
           console.error(`[run-bot-simulation] Trade error:`, tradeError);
           continue;
         }
+
+        // Recalculate avg from all open BUY lots (accurate FIFO-compatible avg)
+        const { data: allOpenBuys } = await supabase
+          .from("bot_trades")
+          .select("amount_btc, price_usd")
+          .eq("user_id", userId)
+          .eq("type", "BUY")
+          .eq("status", "open")
+          .eq("symbol", symbol);
+
+        const newTotalBtc = (allOpenBuys || []).reduce((s, b) => s + Number(b.amount_btc), 0);
+        const newAvgBuyPrice = newTotalBtc > 0 
+          ? (allOpenBuys || []).reduce((s, b) => s + Number(b.amount_btc) * Number(b.price_usd), 0) / newTotalBtc
+          : currentPrice;
 
         await supabase
           .from("bot_config")
@@ -402,9 +412,51 @@ ${formatBBDetails(bands, currentPrice, signal, newBalance, newTotalBtc, coinName
         const btcToSell = Math.min(totalBtcHeld, btcToSellByVolume);
         const actualVolumeUsd = btcToSell * currentPrice;
 
-        const profit = (currentPrice - avgBuyPrice) * btcToSell;
-        const profitPercent = avgBuyPrice > 0 ? ((currentPrice - avgBuyPrice) / avgBuyPrice * 100) : 0;
+        // === FIFO profit calculation ===
+        // Get all open BUY trades for this symbol, oldest first
+        const { data: openBuys } = await supabase
+          .from("bot_trades")
+          .select("id, amount_btc, price_usd")
+          .eq("user_id", userId)
+          .eq("type", "BUY")
+          .eq("status", "open")
+          .eq("symbol", symbol)
+          .order("created_at", { ascending: true });
+
+        let remainingToSell = btcToSell;
+        let totalCost = 0;
+        const consumedLots: { id: string; amount: number; remaining: number }[] = [];
+
+        for (const buy of (openBuys || [])) {
+          if (remainingToSell <= 0) break;
+          const buyAmount = Number(buy.amount_btc);
+          const consumed = Math.min(buyAmount, remainingToSell);
+          totalCost += consumed * Number(buy.price_usd);
+          remainingToSell -= consumed;
+          consumedLots.push({ id: buy.id, amount: consumed, remaining: buyAmount - consumed });
+        }
+
+        const fifoAvgBuyPrice = btcToSell > 0 ? totalCost / (btcToSell - remainingToSell) : 0;
+        const profit = (currentPrice - fifoAvgBuyPrice) * btcToSell;
+        const profitPercent = fifoAvgBuyPrice > 0 ? ((currentPrice - fifoAvgBuyPrice) / fifoAvgBuyPrice * 100) : 0;
         const isWinningTrade = profit > 0;
+
+        // Close fully consumed BUY lots, update partially consumed ones
+        for (const lot of consumedLots) {
+          if (lot.remaining <= 0.00000001) {
+            // Fully consumed - mark as closed
+            await supabase
+              .from("bot_trades")
+              .update({ status: "closed", closed_at: new Date().toISOString() })
+              .eq("id", lot.id);
+          } else {
+            // Partially consumed - reduce amount
+            await supabase
+              .from("bot_trades")
+              .update({ amount_btc: lot.remaining })
+              .eq("id", lot.id);
+          }
+        }
 
         const { error: tradeError } = await supabase
           .from("bot_trades")
@@ -421,6 +473,7 @@ ${formatBBDetails(bands, currentPrice, signal, newBalance, newTotalBtc, coinName
             multiplier: signal.multiplier,
             status: "closed",
             profit_usd: profit,
+            avg_buy_price_at_sell: fifoAvgBuyPrice,
             closed_at: new Date().toISOString(),
             symbol: symbol,
           });
@@ -434,7 +487,20 @@ ${formatBBDetails(bands, currentPrice, signal, newBalance, newTotalBtc, coinName
         const newTotalBtc = totalBtcHeld - btcToSell;
         const newTotalProfit = totalProfitUsd + profit;
         const newWinningTrades = isWinningTrade ? winningTrades + 1 : winningTrades;
-        const newAvgBuyPrice = newTotalBtc > 0 ? avgBuyPrice : 0;
+
+        // Recalculate avg from remaining open BUY lots
+        const { data: remainingBuys } = await supabase
+          .from("bot_trades")
+          .select("amount_btc, price_usd")
+          .eq("user_id", userId)
+          .eq("type", "BUY")
+          .eq("status", "open")
+          .eq("symbol", symbol);
+
+        const newAvgBuyPrice = (remainingBuys && remainingBuys.length > 0)
+          ? remainingBuys.reduce((sum, b) => sum + Number(b.amount_btc) * Number(b.price_usd), 0) 
+            / remainingBuys.reduce((sum, b) => sum + Number(b.amount_btc), 0)
+          : 0;
 
         await supabase
           .from("bot_config")
@@ -449,13 +515,14 @@ ${formatBBDetails(bands, currentPrice, signal, newBalance, newTotalBtc, coinName
           })
           .eq("id", config.id);
 
-        console.log(`[run-bot-simulation] SELL executed: ${btcToSell.toFixed(8)} ${coinName} @ $${currentPrice.toFixed(2)}, profit: $${profit.toFixed(2)}`);
+        console.log(`[run-bot-simulation] SELL executed: ${btcToSell.toFixed(8)} ${coinName} @ $${currentPrice.toFixed(2)}, avg_buy: $${fifoAvgBuyPrice.toFixed(2)}, profit: $${profit.toFixed(2)} (${profitPercent.toFixed(2)}%)`);
         
         await sendPushover(
           profit > 0 
             ? `🟢 SELL ${coinName} +${profitPercent.toFixed(2)}%` 
             : `🔴 SELL ${coinName} ${profitPercent.toFixed(2)}%`,
           `${btcToSell.toFixed(6)} @ $${currentPrice.toLocaleString()}
+Avg Buy: $${fifoAvgBuyPrice.toFixed(2)}
 Zysk: ${profit >= 0 ? '+' : ''}$${profit.toFixed(2)} (${profitPercent >= 0 ? '+' : ''}${profitPercent.toFixed(2)}%)
 ${formatBBDetails(bands, currentPrice, signal, newBalance, newTotalBtc, coinName)}`
         );

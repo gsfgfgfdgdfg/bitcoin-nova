@@ -45,6 +45,7 @@ export interface BotTrade {
   created_at: string;
   closed_at: string | null;
   symbol: string | null;
+  avg_buy_price_at_sell: number | null;
 }
 
 export interface BotAction {

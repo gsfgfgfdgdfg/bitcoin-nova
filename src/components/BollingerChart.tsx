@@ -171,10 +171,11 @@ const BollingerChart = ({ priceHistory, currentBands, trades = [], symbol }: Bol
           />
           
           {/* Price Line */}
+          {/* Price Line - blue to distinguish from BUY markers */}
           <Line
             type="monotone"
             dataKey="price"
-            stroke="hsl(var(--success))"
+            stroke="#3b82f6"
             strokeWidth={2}
             dot={false}
           />
