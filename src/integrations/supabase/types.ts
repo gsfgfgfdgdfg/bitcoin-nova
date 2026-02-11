@@ -68,6 +68,7 @@ export type Database = {
           multiplier: number | null
           price_usd: number | null
           reason: string | null
+          symbol: string | null
           user_id: string
           volume_usd: number | null
         }
@@ -82,6 +83,7 @@ export type Database = {
           multiplier?: number | null
           price_usd?: number | null
           reason?: string | null
+          symbol?: string | null
           user_id: string
           volume_usd?: number | null
         }
@@ -96,6 +98,7 @@ export type Database = {
           multiplier?: number | null
           price_usd?: number | null
           reason?: string | null
+          symbol?: string | null
           user_id?: string
           volume_usd?: number | null
         }
@@ -188,6 +191,7 @@ export type Database = {
           profit_usd: number | null
           status: string
           stop_loss_price: number | null
+          symbol: string | null
           take_profit_price: number | null
           type: string
           user_id: string
@@ -207,6 +211,7 @@ export type Database = {
           profit_usd?: number | null
           status: string
           stop_loss_price?: number | null
+          symbol?: string | null
           take_profit_price?: number | null
           type: string
           user_id: string
@@ -226,6 +231,7 @@ export type Database = {
           profit_usd?: number | null
           status?: string
           stop_loss_price?: number | null
+          symbol?: string | null
           take_profit_price?: number | null
           type?: string
           user_id?: string

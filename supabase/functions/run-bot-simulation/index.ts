@@ -120,7 +120,10 @@ const calculateHourlyVolume = (
   const holdZoneLower = middle - lowerBandWidth * holdZoneThreshold;
   
   if (price >= holdZoneLower && price <= holdZoneUpper) {
-    return { action: 'HOLD', volumeUsd: 0, distanceRatio: 0, multiplier: 1, reason: `Price in neutral zone (±${holdZonePercent}% from MA)` };
+    const distanceFromMA = Math.abs(price - middle);
+    const bandWidth = price >= middle ? upperBandWidth : lowerBandWidth;
+    const actualRatio = bandWidth > 0 ? Math.min(1, distanceFromMA / bandWidth) : 0;
+    return { action: 'HOLD', volumeUsd: 0, distanceRatio: actualRatio, multiplier: 1, reason: `Price in neutral zone (±${holdZonePercent}% from MA)` };
   }
   
   if (price < middle) {
@@ -259,6 +262,7 @@ Deno.serve(async (req) => {
         distance_ratio: signal.distanceRatio,
         multiplier: signal.multiplier,
         volume_usd: signal.volumeUsd,
+        symbol: symbol,
       });
 
       // Get current position data
@@ -303,6 +307,7 @@ Reason: ${signal.reason}`
             distance_ratio: signal.distanceRatio,
             multiplier: signal.multiplier,
             volume_usd: signal.volumeUsd,
+            symbol: symbol,
           });
           
           results.push({ userId, action: "INSUFFICIENT_BALANCE" });
@@ -331,6 +336,7 @@ Reason: ${signal.reason}`
             multiplier: signal.multiplier,
             status: "open",
             profit_usd: 0,
+            symbol: symbol,
           });
 
         if (tradeError) {
@@ -385,6 +391,7 @@ ${formatBBDetails(bands, currentPrice, signal, newBalance, newTotalBtc, coinName
             distance_ratio: signal.distanceRatio,
             multiplier: signal.multiplier,
             volume_usd: signal.volumeUsd,
+            symbol: symbol,
           });
           
           results.push({ userId, action: "NO_BTC_TO_SELL" });
@@ -415,6 +422,7 @@ ${formatBBDetails(bands, currentPrice, signal, newBalance, newTotalBtc, coinName
             status: "closed",
             profit_usd: profit,
             closed_at: new Date().toISOString(),
+            symbol: symbol,
           });
 
         if (tradeError) {

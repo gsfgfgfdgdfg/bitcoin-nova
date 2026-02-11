@@ -7,6 +7,7 @@ interface BollingerChartProps {
   priceHistory: { price: number; timestamp: number }[];
   currentBands?: BollingerBands;
   trades?: BotTrade[];
+  symbol?: string;
 }
 
 const formatDateTime = (timestamp: number): string => {
@@ -19,15 +20,26 @@ const formatDateTime = (timestamp: number): string => {
   });
 };
 
-const BollingerChart = ({ priceHistory, currentBands, trades = [] }: BollingerChartProps) => {
-  // Map trades to timestamps for markers
+const BollingerChart = ({ priceHistory, currentBands, trades = [], symbol }: BollingerChartProps) => {
+  // Filter trades by symbol, then map to markers
   const tradeMarkers = useMemo(() => {
-    return trades.map(trade => ({
+    const filtered = trades.filter(trade => {
+      if (symbol && trade.symbol) return trade.symbol === symbol;
+      if (symbol && !trade.symbol) {
+        // Legacy trades without symbol: filter by price range
+        const priceRange = priceHistory.length > 0
+          ? { min: Math.min(...priceHistory.map(p => p.price)) * 0.5, max: Math.max(...priceHistory.map(p => p.price)) * 1.5 }
+          : null;
+        return priceRange ? Number(trade.price_usd) >= priceRange.min && Number(trade.price_usd) <= priceRange.max : true;
+      }
+      return true;
+    });
+    return filtered.map(trade => ({
       timestamp: new Date(trade.created_at).getTime(),
       type: trade.type,
       price: Number(trade.price_usd),
     }));
-  }, [trades]);
+  }, [trades, symbol, priceHistory]);
 
   const chartData = useMemo(() => {
     if (priceHistory.length < 20) {
@@ -74,7 +86,7 @@ const BollingerChart = ({ priceHistory, currentBands, trades = [] }: BollingerCh
   }
 
   return (
-    <div className="h-64 w-full">
+    <div className="h-[500px] w-full">
       <ResponsiveContainer width="100%" height="100%">
         <ComposedChart data={chartData} margin={{ top: 5, right: 5, left: 5, bottom: 5 }}>
           <defs>

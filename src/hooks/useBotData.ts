@@ -44,6 +44,7 @@ export interface BotTrade {
   multiplier: number | null;
   created_at: string;
   closed_at: string | null;
+  symbol: string | null;
 }
 
 export interface BotAction {
@@ -59,6 +60,7 @@ export interface BotAction {
   multiplier: number | null;
   volume_usd: number | null;
   created_at: string;
+  symbol: string | null;
 }
 
 export const useBotConfig = () => {

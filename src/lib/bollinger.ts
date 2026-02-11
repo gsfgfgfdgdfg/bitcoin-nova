@@ -164,12 +164,15 @@ export const calculateHourlyVolume = (
   const holdZoneUpper = middle + upperBandWidth * holdZoneThreshold;
   const holdZoneLower = middle - lowerBandWidth * holdZoneThreshold;
   
-  // Neutral zone - no action
+  // Neutral zone - no action, but calculate actual ratio
   if (price >= holdZoneLower && price <= holdZoneUpper) {
+    const distanceFromMA = Math.abs(price - middle);
+    const bandWidth = price >= middle ? upperBandWidth : lowerBandWidth;
+    const actualRatio = bandWidth > 0 ? Math.min(1, distanceFromMA / bandWidth) : 0;
     return {
       action: 'HOLD',
       volumeUsd: 0,
-      distanceRatio: 0,
+      distanceRatio: actualRatio,
       multiplier: 1,
       reason: `Cena w strefie neutralnej (±${holdZonePercent}% od MA)`
     };
