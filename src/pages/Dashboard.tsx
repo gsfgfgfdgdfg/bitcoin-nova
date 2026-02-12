@@ -6,6 +6,8 @@ import { useBotConfig, useBotTrades, useBotStats, useCreateBotConfig, useUpdateB
 import { usePriceHistory } from '@/hooks/usePriceHistory';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Bitcoin, TrendingUp, Bot, Play, Square, Clock, Loader2, Sparkles, RefreshCw, Settings, Zap } from 'lucide-react';
 import BollingerChart from '@/components/BollingerChart';
 import TradeHistory from '@/components/TradeHistory';
@@ -15,6 +17,8 @@ import { useQueryClient } from '@tanstack/react-query';
 import { useToast } from '@/hooks/use-toast';
 import { formatDistanceToNow } from 'date-fns';
 import { pl } from 'date-fns/locale';
+
+const INTERVALS = ['1m','3m','5m','15m','30m','1h','2h','4h','6h','8h','12h','1d','3d','1w','1M'];
 
 const Dashboard = () => {
   const { t, language } = useLanguage();
@@ -30,22 +34,27 @@ const Dashboard = () => {
   const createConfig = useCreateBotConfig();
   const updateConfig = useUpdateBotConfig();
 
-  // State for base amount input and bot testing
+  // State for inputs
   const [baseAmountInput, setBaseAmountInput] = useState<string>('6');
   const [isTestingBot, setIsTestingBot] = useState(false);
-
-  // Currency pair inputs
   const [coinInput, setCoinInput] = useState('BTC');
   const [quoteInput, setQuoteInput] = useState('USDT');
+  const [tradeMode, setTradeMode] = useState<string>('fixed');
+  const [tradePercentInput, setTradePercentInput] = useState<string>('5');
+  const [tradeMinUsdInput, setTradeMinUsdInput] = useState<string>('2');
+  const [intervalValue, setIntervalValue] = useState<string>('1h');
 
-  // Sync base amount input with config
+  // Sync inputs with config
   useEffect(() => {
-    if (botConfig?.base_trade_usd) {
-      setBaseAmountInput(String(botConfig.base_trade_usd));
+    if (botConfig) {
+      setBaseAmountInput(String(botConfig.base_trade_usd || 6));
+      setTradeMode(botConfig.trade_mode || 'fixed');
+      setTradePercentInput(String(botConfig.trade_percent || 5));
+      setTradeMinUsdInput(String(botConfig.trade_min_usd || 2));
+      setIntervalValue(botConfig.interval || '1h');
     }
-  }, [botConfig?.base_trade_usd]);
+  }, [botConfig?.base_trade_usd, botConfig?.trade_mode, botConfig?.trade_percent, botConfig?.trade_min_usd, botConfig?.interval]);
 
-  // Sync currency pair inputs with config
   useEffect(() => {
     if (botConfig?.symbol) {
       const [coin, quote] = botConfig.symbol.split('-');
@@ -54,17 +63,15 @@ const Dashboard = () => {
     }
   }, [botConfig?.symbol]);
 
-  // Get current symbol from config
   const currentSymbol = botConfig?.symbol || 'BTC-USDT';
+  const coinName = currentSymbol.split('-')[0] || 'BTC';
   const isRunning = botConfig?.is_running || false;
 
-  // Real price history from BingX - 168 candles = 7 days
-  const { data: priceHistory = [], isLoading: pricesLoading, refetch: refetchPrices } = usePriceHistory(currentSymbol, '1h', 168);
+  // Price history using configured interval
+  const { data: priceHistory = [], isLoading: pricesLoading, refetch: refetchPrices } = usePriceHistory(currentSymbol, intervalValue, 168);
 
-  // Get current price for % calculations
   const currentPrice = priceHistory.length > 0 ? priceHistory[priceHistory.length - 1]?.price || 0 : 0;
 
-  // Calculate Win Rate correctly: profitable SELLs / total SELLs
   const calculatedStats = useMemo(() => {
     const sellTrades = (trades || []).filter(t => t.type === 'SELL');
     const winningSells = sellTrades.filter(t => Number(t.profit_usd) > 0).length;
@@ -72,27 +79,17 @@ const Dashboard = () => {
       ? (winningSells / sellTrades.length) * 100 
       : 0;
     
-    // Calculate P/L percentage based on initial $10,000
     const initialBalance = 10000;
     const currentValue = stats.balance + (stats.totalBtcHeld * currentPrice);
     const profitPercent = ((currentValue - initialBalance) / initialBalance) * 100;
     
-    return {
-      winRate,
-      winningSells,
-      totalSells: sellTrades.length,
-      profitPercent,
-      currentValue,
-    };
+    return { winRate, winningSells, totalSells: sellTrades.length, profitPercent, currentValue };
   }, [trades, stats.balance, stats.totalBtcHeld, currentPrice]);
 
   useEffect(() => {
-    if (!authLoading && !user) {
-      navigate('/auth');
-    }
+    if (!authLoading && !user) navigate('/auth');
   }, [user, authLoading, navigate]);
 
-  // Force refresh prices on mount and auto-refresh every 60 seconds
   useEffect(() => {
     const forceRefresh = async () => {
       try {
@@ -117,7 +114,6 @@ const Dashboard = () => {
     return () => clearInterval(interval);
   }, [queryClient, refetchPrices]);
 
-  // Test bot handler
   const handleTestBot = async () => {
     setIsTestingBot(true);
     try {
@@ -140,43 +136,40 @@ const Dashboard = () => {
           : 'Test zakończony',
       });
     } catch (error: any) {
-      toast({
-        title: 'Błąd testu bota',
-        description: error.message,
-        variant: 'destructive',
-      });
+      toast({ title: 'Błąd testu bota', description: error.message, variant: 'destructive' });
     } finally {
       setIsTestingBot(false);
     }
   };
 
   useEffect(() => {
-    if (user && !configLoading && !botConfig) {
-      createConfig.mutate({});
-    }
+    if (user && !configLoading && !botConfig) createConfig.mutate({});
   }, [user, configLoading, botConfig]);
 
   const handleToggleBot = () => {
-    if (botConfig) {
-      updateConfig.mutate({ is_running: !botConfig.is_running });
-    }
+    if (botConfig) updateConfig.mutate({ is_running: !botConfig.is_running });
   };
 
   const handleSaveSymbol = () => {
     if (!isRunning && coinInput && quoteInput) {
       const newSymbol = `${coinInput.toUpperCase()}-${quoteInput.toUpperCase()}`;
       if (newSymbol !== currentSymbol) {
-        // Reset position data when changing symbol
         updateConfig.mutate({
-          symbol: newSymbol,
-          total_btc_held: 0,
-          avg_buy_price: 0,
-          total_profit_usd: 0,
-          total_trades: 0,
-          winning_trades: 0,
+          symbol: newSymbol, total_btc_held: 0, avg_buy_price: 0,
+          total_profit_usd: 0, total_trades: 0, winning_trades: 0,
         });
       }
     }
+  };
+
+  const handleTradeModeChange = (mode: string) => {
+    setTradeMode(mode);
+    updateConfig.mutate({ trade_mode: mode } as any);
+  };
+
+  const handleIntervalChange = (newInterval: string) => {
+    setIntervalValue(newInterval);
+    updateConfig.mutate({ interval: newInterval } as any);
   };
 
   if (authLoading || configLoading) {
@@ -187,9 +180,7 @@ const Dashboard = () => {
     );
   }
 
-  if (!user) {
-    return null;
-  }
+  if (!user) return null;
 
   return (
     <div className="min-h-screen pb-24">
@@ -227,7 +218,7 @@ const Dashboard = () => {
                 {formatUSD(stats.balance)}
               </p>
               <p className="text-muted-foreground font-mono text-sm">
-                + {stats.totalBtcHeld.toFixed(6)} {coinInput}
+                + {stats.totalBtcHeld.toFixed(6)} {coinName}
               </p>
               {stats.avgBuyPrice > 0 && (
                 <p className="text-muted-foreground font-mono text-xs">
@@ -236,7 +227,7 @@ const Dashboard = () => {
               )}
             </div>
 
-            {/* P&L Card - percentage first */}
+            {/* P&L Card */}
             <div className="cyber-card rounded-xl p-6">
               <div className="flex items-center gap-3 mb-4">
                 <div className="w-10 h-10 rounded-lg bg-success/20 flex items-center justify-center">
@@ -269,9 +260,7 @@ const Dashboard = () => {
               <p className="text-xs text-muted-foreground mt-1">
                 {botConfig?.last_trade_hour ? (
                   <>Ostatnia akcja: {formatDistanceToNow(new Date(botConfig.last_trade_hour), { addSuffix: true, locale: pl })}</>
-                ) : (
-                  'Brak transakcji'
-                )}
+                ) : ('Brak transakcji')}
               </p>
               <div className="flex gap-2 mt-3">
                 <Button
@@ -291,17 +280,11 @@ const Dashboard = () => {
                   )}
                 </Button>
                 <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={handleTestBot}
-                  disabled={isTestingBot}
+                  variant="outline" size="sm"
+                  onClick={handleTestBot} disabled={isTestingBot}
                   title="Ręczny test bota"
                 >
-                  {isTestingBot ? (
-                    <Loader2 className="w-4 h-4 animate-spin" />
-                  ) : (
-                    <Zap className="w-4 h-4" />
-                  )}
+                  {isTestingBot ? <Loader2 className="w-4 h-4 animate-spin" /> : <Zap className="w-4 h-4" />}
                 </Button>
               </div>
             </div>
@@ -317,54 +300,99 @@ const Dashboard = () => {
                 </span>
               </div>
               <div className="space-y-3">
-                {/* Currency pair inputs */}
+                {/* Currency pair */}
                 <div className="flex items-center gap-1">
-                  <Input
-                    value={coinInput}
-                    onChange={(e) => setCoinInput(e.target.value.toUpperCase())}
-                    onBlur={handleSaveSymbol}
-                    disabled={isRunning}
-                    className="w-20 text-center font-mono"
-                    placeholder="BTC"
-                  />
+                  <Input value={coinInput} onChange={(e) => setCoinInput(e.target.value.toUpperCase())} onBlur={handleSaveSymbol} disabled={isRunning} className="w-20 text-center font-mono" placeholder="BTC" />
                   <span className="text-muted-foreground">/</span>
-                  <Input
-                    value={quoteInput}
-                    onChange={(e) => setQuoteInput(e.target.value.toUpperCase())}
-                    onBlur={handleSaveSymbol}
-                    disabled={isRunning}
-                    className="w-20 text-center font-mono"
-                    placeholder="USDT"
-                  />
+                  <Input value={quoteInput} onChange={(e) => setQuoteInput(e.target.value.toUpperCase())} onBlur={handleSaveSymbol} disabled={isRunning} className="w-20 text-center font-mono" placeholder="USDT" />
                 </div>
                 {isRunning && (
                   <p className="text-xs text-destructive">
                     {language === 'pl' ? 'Zatrzymaj bota aby zmienić parę' : 'Stop bot to change pair'}
                   </p>
                 )}
-                {/* Base amount */}
+
+                {/* Interval selector */}
                 <div className="flex items-center gap-2">
-                  <Input
-                    id="baseAmount"
-                    type="number"
-                    min="1"
-                    max="100"
-                    step="0.5"
-                    value={baseAmountInput}
-                    onChange={(e) => setBaseAmountInput(e.target.value)}
-                    onBlur={() => {
-                      const value = parseFloat(baseAmountInput);
-                      if (!isNaN(value) && value >= 1 && value <= 100) {
-                        updateConfig.mutate({ base_trade_usd: value });
-                      }
-                    }}
-                    className="w-20 text-center font-mono"
-                  />
-                  <span className="text-muted-foreground text-sm">USD base</span>
+                  <span className="text-muted-foreground text-xs">Interwał:</span>
+                  <Select value={intervalValue} onValueChange={handleIntervalChange}>
+                    <SelectTrigger className="w-20 h-8 font-mono text-xs">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {INTERVALS.map(i => (
+                        <SelectItem key={i} value={i}>{i}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
                 </div>
-                <p className="text-xs text-muted-foreground">
-                  {language === 'pl' ? 'Zakres' : 'Range'}: {((botConfig?.base_trade_usd || 6) * 1).toFixed(2)} - {((botConfig?.base_trade_usd || 6) * 2).toFixed(2)} USD
-                </p>
+
+                {/* Trade mode switch */}
+                <Tabs value={tradeMode} onValueChange={handleTradeModeChange}>
+                  <TabsList className="h-8">
+                    <TabsTrigger value="fixed" className="text-xs px-3 py-1">USD</TabsTrigger>
+                    <TabsTrigger value="percent" className="text-xs px-3 py-1">%</TabsTrigger>
+                  </TabsList>
+                </Tabs>
+
+                {tradeMode === 'fixed' ? (
+                  <>
+                    <div className="flex items-center gap-2">
+                      <Input
+                        type="number" min="1" max="100" step="0.5"
+                        value={baseAmountInput}
+                        onChange={(e) => setBaseAmountInput(e.target.value)}
+                        onBlur={() => {
+                          const value = parseFloat(baseAmountInput);
+                          if (!isNaN(value) && value >= 1 && value <= 100) {
+                            updateConfig.mutate({ base_trade_usd: value });
+                          }
+                        }}
+                        className="w-20 text-center font-mono"
+                      />
+                      <span className="text-muted-foreground text-sm">USD base</span>
+                    </div>
+                    <p className="text-xs text-muted-foreground">
+                      {language === 'pl' ? 'Zakres' : 'Range'}: {((botConfig?.base_trade_usd || 6) * 1).toFixed(2)} - {((botConfig?.base_trade_usd || 6) * 2).toFixed(2)} USD
+                    </p>
+                  </>
+                ) : (
+                  <>
+                    <div className="flex items-center gap-2">
+                      <Input
+                        type="number" min="0.1" max="100" step="0.5"
+                        value={tradePercentInput}
+                        onChange={(e) => setTradePercentInput(e.target.value)}
+                        onBlur={() => {
+                          const value = parseFloat(tradePercentInput);
+                          if (!isNaN(value) && value >= 0.1 && value <= 100) {
+                            updateConfig.mutate({ trade_percent: value } as any);
+                          }
+                        }}
+                        className="w-16 text-center font-mono"
+                      />
+                      <span className="text-muted-foreground text-xs">% kapitału</span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <Input
+                        type="number" min="0.5" max="100" step="0.5"
+                        value={tradeMinUsdInput}
+                        onChange={(e) => setTradeMinUsdInput(e.target.value)}
+                        onBlur={() => {
+                          const value = parseFloat(tradeMinUsdInput);
+                          if (!isNaN(value) && value >= 0.5) {
+                            updateConfig.mutate({ trade_min_usd: value } as any);
+                          }
+                        }}
+                        className="w-16 text-center font-mono"
+                      />
+                      <span className="text-muted-foreground text-xs">min. USD</span>
+                    </div>
+                    <p className="text-xs text-muted-foreground">
+                      Teraz: ~{formatUSD(stats.balance * (Number(tradePercentInput) || 5) / 100)} ({tradePercentInput}% z {formatUSD(stats.balance)})
+                    </p>
+                  </>
+                )}
               </div>
             </div>
           </div>
@@ -374,11 +402,10 @@ const Dashboard = () => {
             <div className="flex items-center justify-between mb-4">
               <h2 className="font-display text-xl font-bold text-foreground flex items-center gap-2">
                 <Bot className="w-5 h-5 text-bitcoin-orange" />
-                {language === 'pl' ? `Wykres ${currentSymbol} (1h, 7 dni)` : `${currentSymbol} Chart (1h, 7 days)`}
+                {language === 'pl' ? `Wykres ${currentSymbol} (${intervalValue})` : `${currentSymbol} Chart (${intervalValue})`}
               </h2>
               <Button
-                variant="ghost"
-                size="sm"
+                variant="ghost" size="sm"
                 onClick={() => refetchPrices()}
                 disabled={pricesLoading}
                 className="text-muted-foreground hover:text-foreground"
@@ -404,7 +431,8 @@ const Dashboard = () => {
             <TradeHistory 
               trades={trades || []} 
               actions={actions || []}
-              isLoading={tradesLoading || actionsLoading} 
+              isLoading={tradesLoading || actionsLoading}
+              symbol={currentSymbol}
             />
           </div>
         </div>

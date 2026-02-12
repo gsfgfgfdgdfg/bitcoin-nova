@@ -5,6 +5,14 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
 
+// Interval durations in ms for trade limiting
+const intervalMs: Record<string, number> = {
+  '1s': 1000, '1m': 60000, '3m': 180000, '5m': 300000,
+  '15m': 900000, '30m': 1800000, '1h': 3600000, '2h': 7200000,
+  '4h': 14400000, '6h': 21600000, '8h': 28800000, '12h': 43200000,
+  '1d': 86400000, '3d': 259200000, '1w': 604800000, '1M': 2592000000,
+};
+
 // Pushover notification function
 const sendPushover = async (title: string, message: string) => {
   const pushoverToken = Deno.env.get("PUSHOVER_APP_TOKEN");
@@ -40,7 +48,10 @@ const formatBBDetails = (
   signal: HourlyVolumeSignal,
   balance: number,
   coinHeld: number,
-  coinName: string
+  coinName: string,
+  spread: string,
+  remaining: string,
+  avgBuyPrice: number
 ): string => {
   const upperDist = (bands.upper - bands.middle).toFixed(0);
   const lowerDist = (bands.middle - bands.lower).toFixed(0);
@@ -49,7 +60,10 @@ const formatBBDetails = (
   return `MA: $${bands.middle.toFixed(0)} | Ratio: ${(signal.distanceRatio * 100).toFixed(1)}%
 Upper: $${bands.upper.toFixed(0)} (+$${upperDist})
 Lower: $${bands.lower.toFixed(0)} (-$${lowerDist})
+Spread: ${spread}%
 Saldo: $${balance.toFixed(2)} | ${coinName}: ${coinHeld.toFixed(6)}
+Avg Buy: $${avgBuyPrice.toFixed(2)}
+Remaining: ~${remaining} sells
 P/L: ${Number(plPercent) >= 0 ? '+' : ''}${plPercent}%`;
 };
 
@@ -89,7 +103,6 @@ const calculateBollingerBands = (prices: number[], period = 20, multiplier = 2):
   };
 };
 
-// Hourly volume calculation based on distance from MA (100% to 200%)
 interface HourlyVolumeSignal {
   action: 'BUY' | 'SELL' | 'HOLD';
   volumeUsd: number;
@@ -161,17 +174,13 @@ Deno.serve(async (req) => {
   }
 
   try {
-    console.log("[run-bot-simulation] Starting hourly bot simulation...");
+    console.log("[run-bot-simulation] Starting bot simulation...");
 
     const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
     const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
     const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
-    const currentHour = new Date();
-    currentHour.setMinutes(0, 0, 0);
-    currentHour.setMilliseconds(0);
-    const currentHourISO = currentHour.toISOString();
-    console.log("[run-bot-simulation] Current hour:", currentHourISO);
+    const now = new Date();
 
     // Get all active bot configs
     const { data: activeConfigs, error: configError } = await supabase
@@ -187,7 +196,7 @@ Deno.serve(async (req) => {
     if (!activeConfigs || activeConfigs.length === 0) {
       console.log("[run-bot-simulation] No active bots found");
       return new Response(
-        JSON.stringify({ message: "No active bots", processed: 0, timestamp: new Date().toISOString() }),
+        JSON.stringify({ message: "No active bots", processed: 0, timestamp: now.toISOString() }),
         { headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }
@@ -196,32 +205,32 @@ Deno.serve(async (req) => {
 
     const results: { userId: string; action: string; details?: Record<string, unknown> }[] = [];
 
-    // Process each active bot with its own symbol
     for (const config of activeConfigs) {
       const userId = config.user_id;
       const symbol = config.symbol || 'BTC-USDT';
       const coinName = symbol.split('-')[0] || 'BTC';
-      console.log(`[run-bot-simulation] Processing bot for user: ${userId}, symbol: ${symbol}`);
+      const interval = config.interval || '1h';
+      const intervalDuration = intervalMs[interval] || 3600000;
+      
+      console.log(`[run-bot-simulation] Processing bot for user: ${userId}, symbol: ${symbol}, interval: ${interval}`);
 
-      // Check hourly limit
+      // Check interval-based limit
       const lastTradeHour = config.last_trade_hour ? new Date(config.last_trade_hour) : null;
       if (lastTradeHour) {
-        lastTradeHour.setMinutes(0, 0, 0);
-        lastTradeHour.setMilliseconds(0);
-        
-        if (lastTradeHour.getTime() === currentHour.getTime()) {
-          console.log(`[run-bot-simulation] User ${userId} already traded this hour`);
-          results.push({ userId, action: "HOURLY_LIMIT_REACHED" });
+        const elapsed = now.getTime() - lastTradeHour.getTime();
+        if (elapsed < intervalDuration) {
+          console.log(`[run-bot-simulation] User ${userId} already traded this interval (${interval}), elapsed: ${(elapsed/1000).toFixed(0)}s`);
+          results.push({ userId, action: "INTERVAL_LIMIT_REACHED" });
           continue;
         }
       }
 
-      // Get latest price history for THIS symbol
+      // Get latest price history for THIS symbol and interval
       const { data: priceHistory, error: priceError } = await supabase
         .from("price_history")
         .select("close_price, candle_time")
         .eq("symbol", symbol)
-        .eq("interval", "1h")
+        .eq("interval", interval)
         .order("candle_time", { ascending: false })
         .limit(25);
 
@@ -231,24 +240,47 @@ Deno.serve(async (req) => {
       }
 
       if (!priceHistory || priceHistory.length < 20) {
-        console.log(`[run-bot-simulation] Not enough price data for ${symbol}: ${priceHistory?.length || 0} candles`);
-        results.push({ userId, action: "INSUFFICIENT_DATA", details: { symbol, dataPoints: priceHistory?.length || 0 } });
+        console.log(`[run-bot-simulation] Not enough price data for ${symbol}/${interval}: ${priceHistory?.length || 0} candles`);
+        results.push({ userId, action: "INSUFFICIENT_DATA", details: { symbol, interval, dataPoints: priceHistory?.length || 0 } });
         continue;
       }
 
-      // Chronological order for BB calculation
       const prices = priceHistory.reverse().map(p => Number(p.close_price));
       const bands = calculateBollingerBands(prices, 20, 2);
       const currentPrice = bands.price;
 
-      console.log(`[run-bot-simulation] ${symbol} BB - Upper: $${bands.upper.toFixed(2)}, MA: $${bands.middle.toFixed(2)}, Lower: $${bands.lower.toFixed(2)}, Price: $${currentPrice.toFixed(2)}`);
+      // Calculate spread
+      const spread = bands.middle > 0 ? ((bands.upper - bands.lower) / bands.middle * 100).toFixed(2) : '0.00';
 
-      // Calculate signal
-      const baseAmount = Number(config.base_trade_usd) || 6;
+      console.log(`[run-bot-simulation] ${symbol} BB - Upper: $${bands.upper.toFixed(2)}, MA: $${bands.middle.toFixed(2)}, Lower: $${bands.lower.toFixed(2)}, Price: $${currentPrice.toFixed(2)}, Spread: ${spread}%`);
+
+      // Calculate base amount based on trade mode
+      let baseAmount: number;
+      const currentBalance = Number(config.simulated_balance_usd) || 10000;
+      
+      if (config.trade_mode === 'percent') {
+        const percentAmount = currentBalance * (Number(config.trade_percent) || 5) / 100;
+        const minUsd = Number(config.trade_min_usd) || 2;
+        baseAmount = Math.max(minUsd, percentAmount);
+      } else {
+        baseAmount = Number(config.base_trade_usd) || 6;
+      }
+
       const holdZonePercent = Number(config.hold_zone_percent) || 10;
       const signal = calculateHourlyVolume(bands, baseAmount, holdZonePercent);
 
       console.log(`[run-bot-simulation] Signal:`, JSON.stringify(signal));
+
+      // Get current position data
+      const totalBtcHeld = Number(config.total_btc_held) || 0;
+      const avgBuyPrice = Number(config.avg_buy_price) || 0;
+      const totalProfitUsd = Number(config.total_profit_usd) || 0;
+      const totalTrades = Number(config.total_trades) || 0;
+      const winningTrades = Number(config.winning_trades) || 0;
+
+      // Calculate remaining sells
+      const maxSellPerTx = baseAmount / currentPrice;
+      const remaining = maxSellPerTx > 0 ? (totalBtcHeld / maxSellPerTx).toFixed(2) : '0';
 
       // Always log to bot_actions table
       await supabase.from("bot_actions").insert({
@@ -265,27 +297,19 @@ Deno.serve(async (req) => {
         symbol: symbol,
       });
 
-      // Get current position data
-      const currentBalance = Number(config.simulated_balance_usd) || 10000;
-      const totalBtcHeld = Number(config.total_btc_held) || 0;
-      const avgBuyPrice = Number(config.avg_buy_price) || 0;
-      const totalProfitUsd = Number(config.total_profit_usd) || 0;
-      const totalTrades = Number(config.total_trades) || 0;
-      const winningTrades = Number(config.winning_trades) || 0;
+      const nowISO = now.toISOString();
 
       if (signal.action === 'HOLD') {
-        // Send HOLD pushover
         await sendPushover(
           `⏸️ HOLD ${coinName}`,
           `@ $${currentPrice.toLocaleString()}
-${formatBBDetails(bands, currentPrice, signal, currentBalance, totalBtcHeld, coinName)}
+${formatBBDetails(bands, currentPrice, signal, currentBalance, totalBtcHeld, coinName, spread, remaining, avgBuyPrice)}
 Reason: ${signal.reason}`
         );
 
-        // Update last_trade_hour so we don't re-evaluate this hour
         await supabase
           .from("bot_config")
-          .update({ last_trade_hour: currentHourISO })
+          .update({ last_trade_hour: nowISO })
           .eq("id", config.id);
 
         results.push({ userId, action: "HOLD", details: { reason: signal.reason } });
@@ -340,7 +364,7 @@ Reason: ${signal.reason}`
           continue;
         }
 
-        // Recalculate avg from all open BUY lots (accurate FIFO-compatible avg)
+        // Recalculate avg from all open BUY lots
         const { data: allOpenBuys } = await supabase
           .from("bot_trades")
           .select("amount_btc, price_usd")
@@ -354,6 +378,8 @@ Reason: ${signal.reason}`
           ? (allOpenBuys || []).reduce((s, b) => s + Number(b.amount_btc) * Number(b.price_usd), 0) / newTotalBtc
           : currentPrice;
 
+        const newRemaining = maxSellPerTx > 0 ? (newTotalBtc / maxSellPerTx).toFixed(2) : '0';
+
         await supabase
           .from("bot_config")
           .update({ 
@@ -361,7 +387,7 @@ Reason: ${signal.reason}`
             total_btc_held: newTotalBtc,
             avg_buy_price: newAvgBuyPrice,
             total_trades: totalTrades + 1,
-            last_trade_hour: currentHourISO 
+            last_trade_hour: nowISO
           })
           .eq("id", config.id);
 
@@ -371,16 +397,14 @@ Reason: ${signal.reason}`
           `🟢 BUY ${coinName}`,
           `${btcBought.toFixed(6)} @ $${currentPrice.toLocaleString()}
 Vol: $${signal.volumeUsd.toFixed(2)} (${signal.multiplier}x)
-${formatBBDetails(bands, currentPrice, signal, newBalance, newTotalBtc, coinName)}`
+${formatBBDetails(bands, currentPrice, signal, newBalance, newTotalBtc, coinName, spread, newRemaining, newAvgBuyPrice)}`
         );
         
         results.push({
-          userId,
-          action: "BUY",
+          userId, action: "BUY",
           details: {
             symbol, volumeUsd: signal.volumeUsd, btcBought, price: currentPrice,
             multiplier: signal.multiplier, distanceRatio: signal.distanceRatio,
-            bollingerMiddle: bands.middle, bollingerUpper: bands.upper, bollingerLower: bands.lower,
             newBalance, totalBtcHeld: newTotalBtc, avgBuyPrice: newAvgBuyPrice
           }
         });
@@ -403,6 +427,19 @@ ${formatBBDetails(bands, currentPrice, signal, newBalance, newTotalBtc, coinName
             volume_usd: signal.volumeUsd,
             symbol: symbol,
           });
+
+          // Send pushover for NO_BTC_TO_SELL too
+          await sendPushover(
+            `⚪ NO ${coinName} TO SELL`,
+            `@ $${currentPrice.toLocaleString()}
+${formatBBDetails(bands, currentPrice, signal, currentBalance, totalBtcHeld, coinName, spread, '0', avgBuyPrice)}
+Reason: No ${coinName} holdings`
+          );
+
+          await supabase
+            .from("bot_config")
+            .update({ last_trade_hour: nowISO })
+            .eq("id", config.id);
           
           results.push({ userId, action: "NO_BTC_TO_SELL" });
           continue;
@@ -413,7 +450,6 @@ ${formatBBDetails(bands, currentPrice, signal, newBalance, newTotalBtc, coinName
         const actualVolumeUsd = btcToSell * currentPrice;
 
         // === FIFO profit calculation ===
-        // Get all open BUY trades for this symbol, oldest first
         const { data: openBuys } = await supabase
           .from("bot_trades")
           .select("id, amount_btc, price_usd")
@@ -444,13 +480,11 @@ ${formatBBDetails(bands, currentPrice, signal, newBalance, newTotalBtc, coinName
         // Close fully consumed BUY lots, update partially consumed ones
         for (const lot of consumedLots) {
           if (lot.remaining <= 0.00000001) {
-            // Fully consumed - mark as closed
             await supabase
               .from("bot_trades")
               .update({ status: "closed", closed_at: new Date().toISOString() })
               .eq("id", lot.id);
           } else {
-            // Partially consumed - reduce amount
             await supabase
               .from("bot_trades")
               .update({ amount_btc: lot.remaining })
@@ -502,6 +536,8 @@ ${formatBBDetails(bands, currentPrice, signal, newBalance, newTotalBtc, coinName
             / remainingBuys.reduce((sum, b) => sum + Number(b.amount_btc), 0)
           : 0;
 
+        const newRemaining = maxSellPerTx > 0 ? (newTotalBtc / maxSellPerTx).toFixed(2) : '0';
+
         await supabase
           .from("bot_config")
           .update({ 
@@ -511,7 +547,7 @@ ${formatBBDetails(bands, currentPrice, signal, newBalance, newTotalBtc, coinName
             total_profit_usd: newTotalProfit,
             total_trades: totalTrades + 1,
             winning_trades: newWinningTrades,
-            last_trade_hour: currentHourISO 
+            last_trade_hour: nowISO
           })
           .eq("id", config.id);
 
@@ -524,16 +560,13 @@ ${formatBBDetails(bands, currentPrice, signal, newBalance, newTotalBtc, coinName
           `${btcToSell.toFixed(6)} @ $${currentPrice.toLocaleString()}
 Avg Buy: $${fifoAvgBuyPrice.toFixed(2)}
 Zysk: ${profit >= 0 ? '+' : ''}$${profit.toFixed(2)} (${profitPercent >= 0 ? '+' : ''}${profitPercent.toFixed(2)}%)
-${formatBBDetails(bands, currentPrice, signal, newBalance, newTotalBtc, coinName)}`
+${formatBBDetails(bands, currentPrice, signal, newBalance, newTotalBtc, coinName, spread, newRemaining, newAvgBuyPrice)}`
         );
         
         results.push({
-          userId,
-          action: "SELL",
+          userId, action: "SELL",
           details: {
             symbol, volumeUsd: actualVolumeUsd, btcSold: btcToSell, price: currentPrice,
-            multiplier: signal.multiplier, distanceRatio: signal.distanceRatio,
-            bollingerMiddle: bands.middle, bollingerUpper: bands.upper, bollingerLower: bands.lower,
             profit, profitPercent, isWinningTrade, newBalance, totalBtcHeld: newTotalBtc, totalProfit: newTotalProfit
           }
         });
@@ -541,8 +574,7 @@ ${formatBBDetails(bands, currentPrice, signal, newBalance, newTotalBtc, coinName
     }
 
     const response = {
-      timestamp: new Date().toISOString(),
-      currentHour: currentHourISO,
+      timestamp: now.toISOString(),
       processed: activeConfigs.length,
       results,
     };

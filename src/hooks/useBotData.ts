@@ -22,6 +22,10 @@ export interface BotConfig {
   total_trades: number;
   winning_trades: number;
   symbol: string;
+  trade_mode: string;
+  trade_percent: number;
+  trade_min_usd: number;
+  interval: string;
   created_at: string;
   updated_at: string;
 }
