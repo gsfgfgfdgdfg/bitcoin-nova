@@ -112,6 +112,7 @@ export type Database = {
           exchange: string | null
           hold_zone_percent: number | null
           id: string
+          interval: string | null
           is_running: boolean | null
           last_trade_date: string | null
           last_trade_hour: string | null
@@ -124,6 +125,9 @@ export type Database = {
           total_profit_usd: number | null
           total_trades: number | null
           trade_amount_percent: number | null
+          trade_min_usd: number | null
+          trade_mode: string | null
+          trade_percent: number | null
           updated_at: string | null
           user_id: string
           winning_trades: number | null
@@ -135,6 +139,7 @@ export type Database = {
           exchange?: string | null
           hold_zone_percent?: number | null
           id?: string
+          interval?: string | null
           is_running?: boolean | null
           last_trade_date?: string | null
           last_trade_hour?: string | null
@@ -147,6 +152,9 @@ export type Database = {
           total_profit_usd?: number | null
           total_trades?: number | null
           trade_amount_percent?: number | null
+          trade_min_usd?: number | null
+          trade_mode?: string | null
+          trade_percent?: number | null
           updated_at?: string | null
           user_id: string
           winning_trades?: number | null
@@ -158,6 +166,7 @@ export type Database = {
           exchange?: string | null
           hold_zone_percent?: number | null
           id?: string
+          interval?: string | null
           is_running?: boolean | null
           last_trade_date?: string | null
           last_trade_hour?: string | null
@@ -170,6 +179,9 @@ export type Database = {
           total_profit_usd?: number | null
           total_trades?: number | null
           trade_amount_percent?: number | null
+          trade_min_usd?: number | null
+          trade_mode?: string | null
+          trade_percent?: number | null
           updated_at?: string | null
           user_id?: string
           winning_trades?: number | null

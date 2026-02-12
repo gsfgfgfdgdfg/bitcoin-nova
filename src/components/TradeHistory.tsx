@@ -1,7 +1,7 @@
 import { useState, useMemo } from 'react';
 import { TrendingUp, TrendingDown, Clock, Pause, Info } from 'lucide-react';
 import { BotTrade, BotAction } from '@/hooks/useBotData';
-import { formatUSD, formatBTC } from '@/lib/bollinger';
+import { formatUSD, formatCoin } from '@/lib/bollinger';
 import { formatDistanceToNow } from 'date-fns';
 import { pl } from 'date-fns/locale';
 import {
@@ -15,12 +15,14 @@ interface TradeHistoryProps {
   trades: BotTrade[];
   actions?: BotAction[];
   isLoading?: boolean;
+  symbol?: string;
 }
 
 type CombinedAction = (BotTrade & { actionType: 'trade' }) | (BotAction & { actionType: 'action' });
 
-const TradeHistory = ({ trades, actions = [], isLoading }: TradeHistoryProps) => {
+const TradeHistory = ({ trades, actions = [], isLoading, symbol = 'BTC-USDT' }: TradeHistoryProps) => {
   const [selectedItem, setSelectedItem] = useState<CombinedAction | null>(null);
+  const coinName = symbol.split('-')[0] || 'BTC';
 
   // Combine trades and actions, sorted by date
   const allItems = useMemo(() => {
@@ -33,6 +35,21 @@ const TradeHistory = ({ trades, actions = [], isLoading }: TradeHistoryProps) =>
       .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
       .slice(0, 50);
   }, [trades, actions]);
+
+  // Helper to calculate spread from an item
+  const getSpread = (item: CombinedAction): string => {
+    const upper = item.actionType === 'trade' 
+      ? Number((item as BotTrade).bollinger_upper || 0)
+      : Number((item as BotAction).bollinger_upper || 0);
+    const lower = item.actionType === 'trade'
+      ? Number((item as BotTrade).bollinger_lower || 0)
+      : Number((item as BotAction).bollinger_lower || 0);
+    const middle = item.actionType === 'trade'
+      ? Number((item as BotTrade).bollinger_middle || 0)
+      : Number((item as BotAction).bollinger_middle || 0);
+    if (middle <= 0) return '0.00';
+    return ((upper - lower) / middle * 100).toFixed(2);
+  };
 
   if (isLoading) {
     return (
@@ -64,8 +81,8 @@ const TradeHistory = ({ trades, actions = [], isLoading }: TradeHistoryProps) =>
 
   const renderTradeItem = (item: CombinedAction) => {
     if (item.actionType === 'action') {
-      // HOLD or special action
       const action = item as BotAction & { actionType: 'action' };
+      const itemCoin = action.symbol ? action.symbol.split('-')[0] : coinName;
       return (
         <div
           key={action.id}
@@ -79,7 +96,7 @@ const TradeHistory = ({ trades, actions = [], isLoading }: TradeHistoryProps) =>
             <div>
               <p className="font-semibold text-sm text-muted-foreground">
                 {action.action === 'HOLD' ? 'HOLD' : 
-                 action.action === 'NO_BTC_TO_SELL' ? 'BRAK BTC' :
+                 action.action === 'NO_BTC_TO_SELL' ? `BRAK ${itemCoin}` :
                  action.action === 'INSUFFICIENT_BALANCE' ? 'BRAK ŚRODKÓW' : action.action}
               </p>
               <p className="text-muted-foreground text-xs truncate max-w-[150px]">
@@ -97,8 +114,8 @@ const TradeHistory = ({ trades, actions = [], isLoading }: TradeHistoryProps) =>
       );
     }
 
-    // Trade (BUY/SELL)
     const trade = item as BotTrade & { actionType: 'trade' };
+    const tradeCoin = trade.symbol ? trade.symbol.split('-')[0] : coinName;
     return (
       <div
         key={trade.id}
@@ -123,7 +140,7 @@ const TradeHistory = ({ trades, actions = [], isLoading }: TradeHistoryProps) =>
                 trade.type === 'BUY' ? 'text-success' : 'text-bitcoin-orange'
               }`}
             >
-              {trade.type} {formatBTC(Number(trade.amount_btc))}
+              {trade.type} {formatCoin(Number(trade.amount_btc), tradeCoin)}
             </p>
             <p className="text-muted-foreground text-xs">
               @ {formatUSD(Number(trade.price_usd))}
@@ -176,7 +193,6 @@ const TradeHistory = ({ trades, actions = [], isLoading }: TradeHistoryProps) =>
       {/* Details Dialog */}
       <Dialog open={!!selectedItem} onOpenChange={() => setSelectedItem(null)}>
         <DialogContent className="max-w-md">
-          {/* NEW: Safer title with fallback */}
           <DialogHeader>
             <DialogTitle>
               {selectedItem?.actionType === 'trade'
@@ -187,7 +203,6 @@ const TradeHistory = ({ trades, actions = [], isLoading }: TradeHistoryProps) =>
             </DialogTitle>
           </DialogHeader>
           
-          {/* NEW: Guard entire content against null */}
           {selectedItem && (
             <div className="space-y-4">
               {/* Price data */}
@@ -235,6 +250,12 @@ const TradeHistory = ({ trades, actions = [], isLoading }: TradeHistoryProps) =>
               </div>
 
               <hr className="border-border" />
+
+              {/* Spread */}
+              <div className="flex justify-between text-sm font-mono">
+                <span className="text-muted-foreground">Rozstrzał:</span>
+                <span className="font-semibold">{getSpread(selectedItem)}%</span>
+              </div>
 
               {/* Calculations */}
               <div className="space-y-2 font-mono text-sm">

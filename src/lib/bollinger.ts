@@ -109,9 +109,12 @@ export const formatUSD = (amount: number): string => {
   }).format(amount);
 };
 
-export const formatBTC = (amount: number): string => {
-  return `${amount.toFixed(6)} BTC`;
+export const formatCoin = (amount: number, coinName: string = 'BTC'): string => {
+  return `${amount.toFixed(6)} ${coinName}`;
 };
+
+/** @deprecated Use formatCoin instead */
+export const formatBTC = (amount: number): string => formatCoin(amount, 'BTC');
 
 // Calculate position size based on available balance and trade percentage
 export const calculatePositionSize = (

@@ -7,7 +7,6 @@ const corsHeaders = {
 
 const BINGX_BASE_URL = "https://open-api.bingx.com";
 
-// Default supported trading pairs
 const DEFAULT_SYMBOLS = ['BTC-USDT', 'ETH-USDT', 'SOL-USDT', 'XAUT-USDT'];
 
 interface KlineData {
@@ -37,41 +36,53 @@ Deno.serve(async (req) => {
     const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
     const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
-    // Get dynamic symbols from all bot configs
+    // Get dynamic symbols AND intervals from all bot configs
     const { data: configs } = await supabase
       .from("bot_config")
-      .select("symbol");
+      .select("symbol, interval");
 
-    const dynamicSymbols = [...new Set((configs || []).map((c: { symbol: string | null }) => c.symbol).filter(Boolean))] as string[];
-    const allSymbols = [...new Set([...DEFAULT_SYMBOLS, ...dynamicSymbols])];
+    // Build unique (symbol, interval) pairs
+    const dynamicPairs = (configs || []).map((c: { symbol: string | null; interval: string | null }) => ({
+      symbol: c.symbol || 'BTC-USDT',
+      interval: c.interval || '1h',
+    }));
 
-    console.log("Syncing symbols:", allSymbols.join(', '));
+    // Default pairs (1h for default symbols)
+    const defaultPairs = DEFAULT_SYMBOLS.map(s => ({ symbol: s, interval: '1h' }));
+    
+    // Deduplicate
+    const allPairsSet = new Set([...defaultPairs, ...dynamicPairs].map(p => `${p.symbol}|${p.interval}`));
+    const allPairs = [...allPairsSet].map(p => {
+      const [symbol, interval] = p.split('|');
+      return { symbol, interval };
+    });
+
+    console.log("Syncing pairs:", allPairs.map(p => `${p.symbol}/${p.interval}`).join(', '));
 
     const results: Record<string, { price: number; change24h: number; candleCount: number }> = {};
 
-    for (const symbol of allSymbols) {
+    for (const pair of allPairs) {
       try {
-        const klineUrl = `${BINGX_BASE_URL}/openApi/swap/v2/quote/klines?symbol=${symbol}&interval=1h&limit=50`;
-        console.log(`Fetching ${symbol} from BingX:`, klineUrl);
+        const klineUrl = `${BINGX_BASE_URL}/openApi/swap/v2/quote/klines?symbol=${pair.symbol}&interval=${pair.interval}&limit=50`;
+        console.log(`Fetching ${pair.symbol}/${pair.interval} from BingX`);
         
         const response = await fetch(klineUrl);
         
         if (!response.ok) {
-          console.error(`BingX API error for ${symbol}: ${response.status} ${response.statusText}`);
+          console.error(`BingX API error for ${pair.symbol}/${pair.interval}: ${response.status}`);
           continue;
         }
 
         const data: BingXResponse = await response.json();
-        console.log(`${symbol} response code:`, data.code, "msg:", data.msg);
 
         if (data.code !== 0 || !data.data || !Array.isArray(data.data)) {
-          console.error(`BingX API returned error for ${symbol}: ${data.msg}`);
+          console.error(`BingX API returned error for ${pair.symbol}/${pair.interval}: ${data.msg}`);
           continue;
         }
 
         const klines = data.data.map((k: KlineData) => ({
-          symbol: symbol,
-          interval: "1h",
+          symbol: pair.symbol,
+          interval: pair.interval,
           candle_time: new Date(parseInt(k.time)).toISOString(),
           open_price: parseFloat(k.open),
           high_price: parseFloat(k.high),
@@ -79,8 +90,6 @@ Deno.serve(async (req) => {
           close_price: parseFloat(k.close),
           volume: parseFloat(k.volume),
         }));
-
-        console.log(`${symbol}: Parsed ${klines.length} candles, latest price: $${klines[klines.length - 1]?.close_price}`);
 
         const { error: upsertError } = await supabase
           .from("price_history")
@@ -90,32 +99,31 @@ Deno.serve(async (req) => {
           });
 
         if (upsertError) {
-          console.error(`Upsert error for ${symbol}:`, upsertError);
+          console.error(`Upsert error for ${pair.symbol}/${pair.interval}:`, upsertError);
           continue;
         }
 
-        const latestPrice = klines[klines.length - 1]?.close_price || 0;
-        const price24hAgo = klines.length >= 24 
-          ? klines[klines.length - 24]?.close_price 
-          : klines[0]?.close_price || latestPrice;
-        
-        const change24h = price24hAgo > 0 
-          ? ((latestPrice - price24hAgo) / price24hAgo) * 100 
-          : 0;
+        // Track results for the default 1h interval
+        if (pair.interval === '1h') {
+          const latestPrice = klines[klines.length - 1]?.close_price || 0;
+          const price24hAgo = klines.length >= 24 
+            ? klines[klines.length - 24]?.close_price 
+            : klines[0]?.close_price || latestPrice;
+          
+          const change24h = price24hAgo > 0 
+            ? ((latestPrice - price24hAgo) / price24hAgo) * 100 
+            : 0;
 
-        results[symbol] = {
-          price: latestPrice,
-          change24h: change24h,
-          candleCount: klines.length,
-        };
+          results[pair.symbol] = { price: latestPrice, change24h, candleCount: klines.length };
+        }
 
-        console.log(`Successfully synced ${symbol}`);
+        console.log(`Successfully synced ${pair.symbol}/${pair.interval}: ${klines.length} candles`);
       } catch (symbolError) {
-        console.error(`Error syncing ${symbol}:`, symbolError);
+        console.error(`Error syncing ${pair.symbol}/${pair.interval}:`, symbolError);
       }
     }
 
-    console.log("Successfully synced price data for all symbols");
+    console.log("Successfully synced price data for all pairs");
 
     const btcData = results['BTC-USDT'] || { price: 0, change24h: 0, candleCount: 0 };
     
@@ -127,8 +135,6 @@ Deno.serve(async (req) => {
       allSymbols: results,
     };
 
-    console.log("Returning price data:", JSON.stringify(result));
-
     return new Response(JSON.stringify(result), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
       status: 200,
@@ -139,14 +145,8 @@ Deno.serve(async (req) => {
     console.error("Error in sync-bingx-prices:", errorMessage);
     
     return new Response(
-      JSON.stringify({ 
-        error: errorMessage,
-        timestamp: new Date().toISOString(),
-      }),
-      {
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-        status: 500,
-      }
+      JSON.stringify({ error: errorMessage, timestamp: new Date().toISOString() }),
+      { headers: { ...corsHeaders, "Content-Type": "application/json" }, status: 500 }
     );
   }
 });
