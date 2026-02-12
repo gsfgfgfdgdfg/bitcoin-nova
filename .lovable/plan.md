@@ -1,209 +1,212 @@
 
 
-## Plan: Naprawa Wielowalutowosci, Wykresu i Zysku
+## Plan: Tryb procentowy, interwaly, rozstrzal i poprawki
 
 ---
 
-### Glowna Przyczyna Bledow
+### Zmiana 1: Przelacznik trybu transakcji (kwota vs % kapitalu)
 
-Tabele `bot_trades` i `bot_actions` **nie maja kolumny `symbol`**. Gdy uzytkownik zmienil pare z BTC-USDT na XAUT-USDT:
+Dodanie do `bot_config` nowych kolumn:
+- `trade_mode` (TEXT, default `'fixed'`) -- `'fixed'` lub `'percent'`
+- `trade_percent` (NUMERIC, default `5`) -- procent kapitalu
+- `trade_min_usd` (NUMERIC, default `2`) -- minimalna kwota transakcji
 
-1. **avg_buy_price** w bot_config pozostal ~$69,000 (z BTC), wiec SELL XAUT @ $5,031 oblicza zysk jako: `(5031 - 69000) * ilosc = -$29.65` i `-92%` -- stad bledne raporty
-2. **Wykres** pokazuje stare BTC trades ($69k) na tle XAUT ($5k), splaszczajac Y-os od $0k do $80k
-3. **HOLD ratio** zwraca 0.0% zamiast rzeczywistej wartosci (hardcoded w kodzie)
+**Logika w edge function:** Gdy `trade_mode = 'percent'`, obliczany wolumen bazowy to `currentBalance * (trade_percent / 100)`, ale nie mniej niz `trade_min_usd`. Potem stosowany jest ten sam mnoznik Bollinger (1x-2x).
 
----
-
-### Zmiana 1: Dodanie kolumny `symbol` do tabel
-
-**Nowa migracja SQL:**
-
-```sql
-ALTER TABLE public.bot_trades ADD COLUMN IF NOT EXISTS symbol TEXT DEFAULT 'BTC-USDT';
-ALTER TABLE public.bot_actions ADD COLUMN IF NOT EXISTS symbol TEXT DEFAULT 'BTC-USDT';
-
--- Oznacz istniejace XAUT trades (po cenie < $10k)
-UPDATE public.bot_trades SET symbol = 'XAUT-USDT' WHERE price_usd < 10000;
-UPDATE public.bot_actions SET symbol = 'XAUT-USDT' WHERE price_usd < 10000;
-
--- Napraw zysk dla XAUT SELL trades (przeliczyc na podstawie rzeczywistych cen zakupu XAUT)
--- Usuwamy bledne profit_usd z XAUT trades - zostana przeliczone
-```
+**UI w Dashboard (karta Configuration):**
+- Przelacznik (Switch/Tabs): "Kwota USD" / "% kapitalu"
+- W trybie kwotowym: pole "USD base" (jak teraz)
+- W trybie procentowym: pole "% kapitalu" + pole "nie mniej niz (USD)"
+- Zakres dynamicznie przeliczany na podstawie aktualnego salda
 
 ---
 
-### Zmiana 2: Reset pozycji przy zmianie symbolu
+### Zmiana 2: Wybor interwalu
 
-**Plik:** `src/pages/Dashboard.tsx` - handleSaveSymbol
+Dodanie do `bot_config` kolumny:
+- `interval` (TEXT, default `'1h'`)
 
-Gdy uzytkownik zmienia pare walutowa (bot musi byc zatrzymany), zresetowac:
-- `total_btc_held` -> 0
-- `avg_buy_price` -> 0
-- `total_profit_usd` -> 0 (opcjonalnie, lub zachowac)
-- `total_trades` -> 0
-- `winning_trades` -> 0
+**Dostepne interwaly:** `1s, 1m, 3m, 5m, 15m, 30m, 1h, 2h, 4h, 6h, 8h, 12h, 1d, 3d, 1w, 1M`
 
-Dzieki temu nowa para zaczyna od czystego stanu.
+**Mapowanie interwalow BingX:** BingX API uzywa formatow: `1m, 3m, 5m, 15m, 30m, 1h, 2h, 4h, 6h, 8h, 12h, 1d, 3d, 1w, 1M`. Wiec format jest kompatybilny.
 
----
+**Zmiany:**
+- `sync-bingx-prices`: pobieranie swieczek w interwale z `bot_config` (dynamicznie per bot)
+- `run-bot-simulation`: uzycie interwalu z configu zamiast hardcoded `'1h'`
+- `usePriceHistory`: przekazywanie interwalu z configu
+- Dashboard: Select z lista interwalow, zmiana wykres i tytul
+- Zmiana limitu (hourly -> interval-based) w edge function
 
-### Zmiana 3: Edge function - zapisywanie symbol z kazdym trade/action
-
-**Plik:** `supabase/functions/run-bot-simulation/index.ts`
-
-W kazdym `insert` do `bot_trades` i `bot_actions` dodac pole `symbol: symbol`.
+**Uwaga:** Limit "jedna transakcja na godzine" musi byc zmieniony na "jedna transakcja na interwal". Pole `last_trade_hour` bedzie porownywane z aktualnym interwałem.
 
 ---
 
-### Zmiana 4: Fix obliczania zysku SELL
+### Zmiana 3: Info o pozostalych transakcjach
 
-**Plik:** `supabase/functions/run-bot-simulation/index.ts` (linia 398)
+**Obliczenie:** `maxTransakcji = totalBtcHeld / (baseVolume100pct / currentPrice)`
 
-Obecna logika:
-```typescript
-const profit = (currentPrice - avgBuyPrice) * btcToSell;
-```
+Gdzie `baseVolume100pct` to wolumen przy ratio 100% (baza * 1.0).
 
-To jest poprawna logika -- problem jest w `avgBuyPrice` ktory nie jest resetowany przy zmianie symbolu. Po wdrozeniu resetu z Zmiany 2, zysk bedzie liczony poprawnie wzgledem sredniej ceny zakupu tego samego coina.
+**Wyswietlanie:**
+- W szczegolach akcji (dialog TradeHistory): nowa sekcja "Pozostale transakcje: ~4.66"
+- W Pushover: dodac linie `Remaining: ~4.66 sells @ 100%`
 
-**Zysk procentowy transakcji** = `((currentPrice - avgBuyPrice) / avgBuyPrice) * 100` -- to juz jest w kodzie (linia 399).
-
----
-
-### Zmiana 5: Fix HOLD ratio
-
-**Plik:** `supabase/functions/run-bot-simulation/index.ts` (linia 122-123)
-
-Obecny kod:
-```typescript
-if (price >= holdZoneLower && price <= holdZoneUpper) {
-  return { action: 'HOLD', volumeUsd: 0, distanceRatio: 0, ...
-```
-
-Zmiana - obliczyc rzeczywiste ratio nawet w strefie HOLD:
-```typescript
-if (price >= holdZoneLower && price <= holdZoneUpper) {
-  const distanceFromMA = Math.abs(price - middle);
-  const bandWidth = price >= middle ? upperBandWidth : lowerBandWidth;
-  const actualRatio = bandWidth > 0 ? Math.min(1, distanceFromMA / bandWidth) : 0;
-  return { action: 'HOLD', volumeUsd: 0, distanceRatio: actualRatio, ...
-```
-
-Ten sam fix w `src/lib/bollinger.ts`.
+Edge function bedzie obliczal te wartosc i dodawal do powiadomien. Na froncie obliczane z danych w kontekscie.
 
 ---
 
-### Zmiana 6: Wykres - wieksza wysokosc + filtrowanie trades po symbol
+### Zmiana 4: Parametr "rozstrzal" (spread)
 
-**Plik:** `src/components/BollingerChart.tsx`
+**Wzor:** `rozstrzal = ((upper - lower) / middle) * 100` -- wynik w %
 
-1. Zwiekszyc `h-64` (256px) do `h-[500px]`
-2. Dodac prop `symbol` i filtrowac trades po nim:
-
-```typescript
-interface BollingerChartProps {
-  priceHistory: { price: number; timestamp: number }[];
-  trades?: BotTrade[];
-  symbol?: string;  // nowy prop
-}
-
-// Filtrowanie:
-const filteredTrades = trades.filter(t => 
-  !symbol || t.symbol === symbol
-);
-```
-
-Poniewaz stare trades nie maja `symbol`, bedziemy tez filtrowac po cenie -- trades z cena daleko od zakresu wykresu beda pomijane.
+**Wyswietlanie:**
+- Na stronie: w szczegolach akcji (dialog) jako dodatkowa metryka
+- W Pushover: nowa linia np. `Spread: 1.83%`
+- W formatBBDetails helper: dodac `Spread` do kazdego powiadomienia
 
 ---
 
-### Zmiana 7: TradeHistory - zysk w % zamiast kwoty
+### Zmiana 5: Fix "BTC" -> nazwa aktualnego coina
 
-**Plik:** `src/components/TradeHistory.tsx`
+**Zrodla bledu:**
+1. `src/lib/bollinger.ts` linia 113: `formatBTC` hardcoduje "BTC" -- dodac parametr `coinName`
+2. `src/components/TradeHistory.tsx` linia 82: hardcoded "BRAK BTC" -- uzyc `symbol` z action
+3. `src/components/TradeHistory.tsx` linia 126: `formatBTC()` -- przekazac nazwe coina
 
-Na liscie (linia 141-142) i w dialogu (linia 275-276):
-
-Zamiast:
-```
-+$0.04
-```
-
-Pokazac:
-```
-+0.06%  ($0.04)
-```
-
-Obliczanie: Jesli trade ma `price_usd` i wiemy `avgBuyPrice` (z bollinger_middle lub z kontekstu), to:
-```typescript
-const profitPercent = avgBuyPrice > 0 ? ((sellPrice - avgBuyPrice) / avgBuyPrice * 100) : 0;
-```
-
-Ale w `bot_trades` nie mamy `avg_buy_price` per trade. Mozemy ja obliczyc z `profit_usd` i `amount_btc`:
-```typescript
-// profit = (sellPrice - avgBuyPrice) * amount
-// avgBuyPrice = sellPrice - (profit / amount)
-const avgBuy = sellPrice - (profit / amount);
-const profitPct = ((sellPrice - avgBuy) / avgBuy * 100);
-```
-
-Alternatywnie, dodac kolumne `profit_percent` do `bot_trades` i zapisywac w edge function.
+**Rozwiazanie:** Zmienic `formatBTC` na `formatCoin(amount, coinName)` i przekazac `symbol` jako prop do TradeHistory.
 
 ---
 
-### Zmiana 8: Filtrowanie trades/actions po aktualnym symbolu
+### Zmiana 6: Pushover dla NO_BTC_TO_SELL
 
-**Plik:** `src/hooks/useBotData.ts` - `useBotTrades` i `useBotActions`
-
-Dodac parametr `symbol` i filtrowac zapytania:
-```typescript
-export const useBotTrades = (symbol?: string) => {
-  // ...
-  .eq('user_id', user.id)
-  ...(symbol ? .eq('symbol', symbol) : '')
-```
-
-Lub filtrowac po stronie frontendu w Dashboard.
+Obecnie przy braku coina do sprzedazy, bot loguje do `bot_actions` ale NIE wysyla Pushover. Dodac wywolanie `sendPushover` z pelnym formatem BB + stan konta.
 
 ---
 
-### Zmiana 9: Aktualizacja typow
+### Szczegolowy plan plikow
 
-**Plik:** `src/hooks/useBotData.ts`
-
-Dodac `symbol` do interfejsow `BotTrade` i `BotAction`.
-
----
-
-### Podsumowanie Zmian
-
-| Plik | Zmiana |
+| Plik | Zmiany |
 |------|--------|
-| Migracja SQL | Dodac `symbol` do bot_trades i bot_actions, naprawic XAUT trades |
-| `supabase/functions/run-bot-simulation/index.ts` | 1) Zapisywac `symbol` z kazdym trade/action. 2) Fix HOLD ratio. 3) Dodac `profit_percent` do SELL trades |
-| `src/lib/bollinger.ts` | Fix HOLD ratio (ten sam wzor co w edge function) |
-| `src/components/BollingerChart.tsx` | 1) Wysokosc h-64 -> h-[500px]. 2) Filtrowac trades po cenie/symbol |
-| `src/components/TradeHistory.tsx` | Zysk jako % (glowny) z kwota (drugorzedna) |
-| `src/hooks/useBotData.ts` | Dodac `symbol` do interfejsow |
-| `src/pages/Dashboard.tsx` | Reset pozycji przy zmianie symbolu |
-| `src/integrations/supabase/types.ts` | Aktualizacja typow |
+| **Migracja SQL** | Dodac kolumny: `trade_mode`, `trade_percent`, `trade_min_usd`, `interval` |
+| **`src/integrations/supabase/types.ts`** | Dodac nowe kolumny do typow |
+| **`src/hooks/useBotData.ts`** | Dodac nowe pola do BotConfig interface |
+| **`src/pages/Dashboard.tsx`** | 1) Przelacznik trybu kwota/%. 2) Select interwalu. 3) Przekazac symbol do TradeHistory. 4) Dynamiczny tytul wykresu z interwalem |
+| **`src/components/TradeHistory.tsx`** | 1) Prop `symbol`, uzyc w etykietach. 2) Rozstrzal w dialogu. 3) Remaining sells w dialogu. 4) Fix "BRAK BTC" -> "BRAK {coin}" |
+| **`src/lib/bollinger.ts`** | `formatBTC` -> `formatCoin(amount, coinName)` |
+| **`supabase/functions/run-bot-simulation/index.ts`** | 1) trade_mode/percent logika. 2) interval zamiast hardcoded 1h. 3) Rozstrzal w pushover. 4) Remaining sells w pushover. 5) NO_BTC_TO_SELL pushover |
+| **`supabase/functions/sync-bingx-prices/index.ts`** | Pobierac swieczki w interwalach z bot_config |
+| **`src/hooks/usePriceHistory.ts`** | Bez zmian (juz przyjmuje interval jako parametr) |
+| **`src/components/BollingerChart.tsx`** | Bez zmian |
 
 ---
 
-### Weryfikacja Zysku XAUT
+### Sekcja Techniczna
 
-Przyklad z Pushover: BUY XAUT 0.000560 @ $5,004, potem SELL @ $5,031.70
-
-```text
-Poprawne obliczenie:
-avgBuyPrice = ~$5,004 (z XAUT zakupow)
-profit = (5031.70 - 5004) * 0.000461 = $0.013
-profitPercent = (5031.70 - 5004) / 5004 * 100 = +0.55%
-
-Bledne (obecne):
-avgBuyPrice = ~$69,000 (z BTC!)
-profit = (5031.70 - 69000) * 0.000461 = -$29.65
-profitPercent = -92.7%
+**Migracja SQL:**
+```sql
+ALTER TABLE public.bot_config 
+  ADD COLUMN IF NOT EXISTS trade_mode TEXT DEFAULT 'fixed',
+  ADD COLUMN IF NOT EXISTS trade_percent NUMERIC DEFAULT 5,
+  ADD COLUMN IF NOT EXISTS trade_min_usd NUMERIC DEFAULT 2,
+  ADD COLUMN IF NOT EXISTS interval TEXT DEFAULT '1h';
 ```
 
-Po resecie pozycji przy zmianie symbolu i dodaniu kolumny `symbol`, ten problem zostanie rozwiazany.
+**Edge function - tryb procentowy:**
+```typescript
+let baseAmount: number;
+if (config.trade_mode === 'percent') {
+  const percentAmount = currentBalance * (Number(config.trade_percent) || 5) / 100;
+  const minUsd = Number(config.trade_min_usd) || 2;
+  baseAmount = Math.max(minUsd, percentAmount);
+} else {
+  baseAmount = Number(config.base_trade_usd) || 6;
+}
+```
+
+**Edge function - interwal:**
+```typescript
+const interval = config.interval || '1h';
+
+// Pobierz ceny w odpowiednim interwale
+const { data: priceHistory } = await supabase
+  .from("price_history")
+  .select("close_price, candle_time")
+  .eq("symbol", symbol)
+  .eq("interval", interval)
+  .order("candle_time", { ascending: false })
+  .limit(25);
+
+// Limit transakcji per interwal zamiast per godzine
+// Oblicz poczatek biezacego interwalu
+```
+
+**Mapowanie interwalow na sekundy (do limitu transakcji):**
+```typescript
+const intervalMs: Record<string, number> = {
+  '1s': 1000, '1m': 60000, '3m': 180000, '5m': 300000,
+  '15m': 900000, '30m': 1800000, '1h': 3600000, '2h': 7200000,
+  '4h': 14400000, '6h': 21600000, '8h': 28800000, '12h': 43200000,
+  '1d': 86400000, '3d': 259200000, '1w': 604800000, '1M': 2592000000,
+};
+```
+
+**Rozstrzal w formatBBDetails:**
+```typescript
+const spread = ((bands.upper - bands.lower) / bands.middle * 100).toFixed(2);
+// Dodac do return:
+// Spread: ${spread}%
+```
+
+**Remaining sells:**
+```typescript
+const baseVol100 = baseAmount; // volume at 100% ratio
+const maxSellPerTx = baseVol100 / currentPrice;
+const remainingSells = maxSellPerTx > 0 ? (coinHeld / maxSellPerTx).toFixed(2) : '0';
+// Dodac: Remaining: ~${remainingSells} sells
+```
+
+**Fix formatCoin:**
+```typescript
+export const formatCoin = (amount: number, coinName: string = 'BTC'): string => {
+  return `${amount.toFixed(6)} ${coinName}`;
+};
+// Zachowac formatBTC dla kompatybilnosci:
+export const formatBTC = (amount: number): string => formatCoin(amount, 'BTC');
+```
+
+**Dashboard - UI przelacznika trybu:**
+```typescript
+// Tabs: "Kwota" | "% kapitalu"
+<Tabs value={tradeMode} onValueChange={handleTradeMode}>
+  <TabsList><TabsTrigger value="fixed">USD</TabsTrigger>
+  <TabsTrigger value="percent">%</TabsTrigger></TabsList>
+</Tabs>
+// W trybie "percent":
+<Input value={tradePercent} /> <span>% kapitalu</span>
+<Input value={tradeMinUsd} /> <span>min. USD</span>
+```
+
+**Dashboard - Select interwalu:**
+```typescript
+const INTERVALS = ['1m','3m','5m','15m','30m','1h','2h','4h','6h','8h','12h','1d','3d','1w','1M'];
+<Select value={interval} onValueChange={handleIntervalChange}>
+  {INTERVALS.map(i => <SelectItem key={i} value={i}>{i}</SelectItem>)}
+</Select>
+```
+
+**sync-bingx-prices - dynamiczne interwaly:**
+```typescript
+// Pobierz unikalne interwaly z bot_config
+const { data: configs } = await supabase
+  .from("bot_config")
+  .select("symbol, interval");
+
+// Dla kazdego unikalnego (symbol, interval) pobierz swieczki
+const pairs = [...new Set(configs.map(c => `${c.symbol}|${c.interval}`))];
+for (const pair of pairs) {
+  const [sym, intv] = pair.split('|');
+  const klineUrl = `...&symbol=${sym}&interval=${intv}&limit=50`;
+  // ...
+}
+```
 
