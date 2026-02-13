@@ -122,23 +122,28 @@ const BollingerChart = ({ priceHistory, currentBands, trades = [], symbol }: Bol
               padding: '8px 12px',
             }}
             labelStyle={{ color: 'hsl(var(--foreground))' }}
-            formatter={(value: number, name: string) => [
-              `$${value.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
-              name === 'price' ? 'Price' : 
-              name === 'upper' ? 'Upper Band' : 
-              name === 'middle' ? 'MA (20)' : 
-              name === 'lower' ? 'Lower Band' :
-              name === 'buyMarker' ? '🟢 BUY' :
-              name === 'sellMarker' ? '🔴 SELL' : name
-            ]}
+            formatter={(value: number, name: string) => {
+              if (name === 'bandArea') return null;
+              return [
+                `$${value.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
+                name === 'price' ? 'Price' : 
+                name === 'upper' ? 'Upper Band' : 
+                name === 'middle' ? 'MA (20)' : 
+                name === 'lower' ? 'Lower Band' :
+                name === 'buyMarker' ? '🟢 BUY' :
+                name === 'sellMarker' ? '🔴 SELL' : name
+              ];
+            }}
           />
 
-          {/* Bollinger Bands Area */}
+          {/* Bollinger Bands Area - hidden from tooltip */}
           <Area
             type="monotone"
             dataKey="upper"
+            name="bandArea"
             stroke="none"
             fill="url(#bollingerGradient)"
+            tooltipType="none"
           />
           
           {/* Upper Band */}

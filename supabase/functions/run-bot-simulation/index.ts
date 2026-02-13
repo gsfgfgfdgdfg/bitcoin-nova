@@ -225,7 +225,7 @@ Deno.serve(async (req) => {
         }
       }
 
-      // Get latest price history for THIS symbol and interval
+      // Get latest price history for THIS symbol and interval (for BB calculation)
       const { data: priceHistory, error: priceError } = await supabase
         .from("price_history")
         .select("close_price, candle_time")
@@ -246,8 +246,27 @@ Deno.serve(async (req) => {
       }
 
       const prices = priceHistory.reverse().map(p => Number(p.close_price));
+      
+      // Fetch LIVE price from BingX for accurate trading
+      let livePrice = prices[prices.length - 1]; // fallback to last candle
+      try {
+        const tickerUrl = `https://open-api.bingx.com/openApi/swap/v2/quote/ticker?symbol=${symbol}`;
+        const tickerRes = await fetch(tickerUrl);
+        if (tickerRes.ok) {
+          const tickerData = await tickerRes.json();
+          if (tickerData.code === 0 && tickerData.data?.lastPrice) {
+            livePrice = parseFloat(tickerData.data.lastPrice);
+            console.log(`[run-bot-simulation] Live price for ${symbol}: $${livePrice}`);
+          }
+        }
+      } catch (e) {
+        console.log(`[run-bot-simulation] Failed to fetch live price, using candle close: $${livePrice}`);
+      }
+      
+      // Use candle prices for BB calculation but override current price with live price
+      prices[prices.length - 1] = livePrice;
       const bands = calculateBollingerBands(prices, 20, 2);
-      const currentPrice = bands.price;
+      const currentPrice = livePrice;
 
       // Calculate spread
       const spread = bands.middle > 0 ? ((bands.upper - bands.lower) / bands.middle * 100).toFixed(2) : '0.00';

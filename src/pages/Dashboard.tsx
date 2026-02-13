@@ -167,9 +167,17 @@ const Dashboard = () => {
     updateConfig.mutate({ trade_mode: mode } as any);
   };
 
-  const handleIntervalChange = (newInterval: string) => {
+  const handleIntervalChange = async (newInterval: string) => {
     setIntervalValue(newInterval);
     updateConfig.mutate({ interval: newInterval } as any);
+    // Trigger sync to fetch candles for new interval
+    try {
+      await supabase.functions.invoke('sync-bingx-prices');
+      queryClient.invalidateQueries({ queryKey: ['price-history'] });
+      refetchPrices();
+    } catch (e) {
+      console.error('Error syncing after interval change:', e);
+    }
   };
 
   if (authLoading || configLoading) {
